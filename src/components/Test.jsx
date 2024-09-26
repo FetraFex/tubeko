@@ -8,23 +8,21 @@ function ParkingModel() {
   return <primitive object={scene} scale={0.1} />;
 }
 
-// Modified FollowPathBox to load a unique model instance for each object
-const FollowPathBox = ({ path, modelUrl , reversePath}) => {
+// FollowPathBox handles a car model following a path, including smooth rotation
+const FollowPathBox = ({ path, modelUrl, reversePath }) => {
   const { scene: carModel } = useGLTF(modelUrl);
   const meshRef = useRef();
   const textRef = useRef(); // Ref for the text
   const [time, setTime] = useState(0);
   const [quitTime, setQuitTime] = useState(0);
   const [hasArrived, setHasArrived] = useState(false);
-
   const [waitForNextMove, setWaitForNextMove] = useState(false);
 
   useEffect(() => {
     if (hasArrived) {
       const timer = setTimeout(() => {
         setWaitForNextMove(true); // After delay, set flag to start next movement
-      }, 2000); // 2 seconds delay
-
+      }, 10000); // 2 seconds delay
       return () => clearTimeout(timer);
     }
   }, [hasArrived]);
@@ -35,8 +33,18 @@ const FollowPathBox = ({ path, modelUrl , reversePath}) => {
       setTime(newTime);
 
       const position = path.getPointAt(newTime);
+      const tangent = path.getTangentAt(newTime);
+
       if (meshRef.current) {
         meshRef.current.position.copy(position); // Update the mesh position
+        
+        // Compute the lookAt target using the tangent (direction along the path)
+        const lookAtTarget = position.clone().add(tangent);
+        meshRef.current.lookAt(lookAtTarget); // Orient the car to face forward
+
+        // Ensure the car stays upright by constraining the Y axis
+        meshRef.current.rotation.x = 0;
+        meshRef.current.rotation.z = 0;
       }
 
       if (textRef.current) {
@@ -51,8 +59,18 @@ const FollowPathBox = ({ path, modelUrl , reversePath}) => {
       setQuitTime(newTime);
 
       const position = reversePath.getPointAt(newTime);
+      const tangent = reversePath.getTangentAt(newTime);
+
       if (meshRef.current) {
         meshRef.current.position.copy(position); // Update the mesh position
+        
+        // Compute the lookAt target using the tangent (direction along the path)
+        const lookAtTarget = position.clone().add(tangent);
+        meshRef.current.lookAt(lookAtTarget); // Orient the car to face backward
+
+        // Ensure the car stays upright by constraining the Y axis
+        meshRef.current.rotation.x = 0;
+        meshRef.current.rotation.z = 0;
       }
 
       if (textRef.current) {
@@ -80,12 +98,10 @@ const FollowPathBox = ({ path, modelUrl , reversePath}) => {
       >
         Car 1
       </Text>
-      
-      {/* The moving box */}
+
+      {/* The moving car */}
       <mesh ref={meshRef} position={[0, 0, 0]}>
-        <boxGeometry args={[0.2, 0.2, 0.2]} />
-        <meshStandardMaterial color="orange" />
-        <primitive object={carModel.clone()} position={[0, 0, 0]} scale={0.45}/>
+        <primitive object={carModel.clone()} position={[0, 0, 0]} scale={0.45} />
       </mesh>
 
       {/* Visualize the path */}
