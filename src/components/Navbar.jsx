@@ -12,8 +12,8 @@ import {
 
 const Navbar = () => {
   return (
-    <motion.section {...slideAnimation("up")} className="fixed w-full flex justify-between py-3 px-6 bg-transparent text-white z-50">
-        <motion.header {...slideAnimation("left")}>NitroSim</motion.header>
+    <motion.section {...slideAnimation("up")} className="fixed w-full flex justify-between py-3 px-6 bg-transparent text-white z-50 lg:py-9 lg:px-20">
+        <motion.header {...slideAnimation("left")} className='font-mistergrape text-5xl'>NitroSim</motion.header>
         <FontAwesomeIcon icon={faBars} size='2x'className='cursor-pointer'/>
     </motion.section>
   )

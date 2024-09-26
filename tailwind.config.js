@@ -7,7 +7,10 @@ export default {
   theme: {
     extend: {
       fontFamily: {
-        nunito: ["Nunito"]
+        nunito: ["Nunito"],
+        breathney: ["Breathney"],
+        mistergrape: ["MisterGrape"],
+        sinera: ["Sinera"]
       }
     },
   },
