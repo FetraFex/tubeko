@@ -4,26 +4,31 @@ import { Line, OrbitControls, Text, useGLTF } from "@react-three/drei";
 import * as THREE from "three";
 
 function ParkingModel() {
-  const { scene } = useGLTF('Parking.glb');
+  const { scene } = useGLTF('Parking1.glb');
   return <primitive object={scene} scale={0.1} />;
 }
 
 // FollowPathBox handles a car model following a path, including smooth rotation
-const FollowPathBox = ({ path, modelUrl, reversePath }) => {
+const FollowPathBox = ({ path, modelUrl, reversePath, reverseModel }) => {
   const { scene: carModel } = useGLTF(modelUrl);
+  const { scene: revModel } = useGLTF(reverseModel);
   const meshRef = useRef();
   const textRef = useRef(); // Ref for the text
   const [time, setTime] = useState(0);
   const [quitTime, setQuitTime] = useState(0);
   const [hasArrived, setHasArrived] = useState(false);
   const [waitForNextMove, setWaitForNextMove] = useState(false);
+  const [hivoaka, setHivoaka] = useState(false)
 
   useEffect(() => {
     if (hasArrived) {
+      setHivoaka(true)
       const timer = setTimeout(() => {
         setWaitForNextMove(true); // After delay, set flag to start next movement
       }, 10000); // 2 seconds delay
       return () => clearTimeout(timer);
+    } else {
+      
     }
   }, [hasArrived]);
 
@@ -87,21 +92,10 @@ const FollowPathBox = ({ path, modelUrl, reversePath }) => {
 
   return (
     <>
-      {/* The text label following the mesh */}
-      <Text
-        ref={textRef} // Use a ref for the Text
-        position={[0, 1.5, 0]} // Initial position, it will be updated in useFrame
-        fontSize={0.5}          // Font size of the label
-        color="black"           // Text color
-        anchorX="center"        // Horizontal alignment of the text
-        anchorY="middle"        // Vertical alignment of the text
-      >
-        Car 1
-      </Text>
-
       {/* The moving car */}
       <mesh ref={meshRef} position={[0, 0, 0]}>
-        <primitive object={carModel.clone()} position={[0, 0, 0]} scale={0.45} />
+        { !hivoaka && <primitive object={carModel.clone()} position={[0, 0, 0]} scale={0.45} />}
+        { hivoaka && <primitive object={revModel.clone()} position={[0, 0, 0]} scale={0.45} />}
       </mesh>
 
       {/* Visualize the path */}
@@ -166,7 +160,7 @@ const App = () => {
         // Spawn a new box that follows its own path and load unique model for it
         setBoxes((prevBoxes) => [
           ...prevBoxes,
-          { path: newPath, reversePath, modelUrl: 'Car4.glb' },
+          { path: newPath, reversePath, modelUrl: 'Car4.glb', reverseModel: "Car3.glb"},
         ]);
       }
     };
@@ -189,7 +183,7 @@ const App = () => {
 
         {/* Render all boxes, each following their own path */}
         {boxes.map((box, index) => (
-          <FollowPathBox key={index} path={box.path} modelUrl={box.modelUrl} reversePath={box.reversePath} />
+          <FollowPathBox key={index} path={box.path} modelUrl={box.modelUrl} reversePath={box.reversePath} reverseModel={box.reverseModel} />
         ))}
 
         {parkingSlots.map((position, index) => (
