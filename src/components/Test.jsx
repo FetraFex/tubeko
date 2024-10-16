@@ -174,7 +174,10 @@ const App = () => {
 
   return (
     <div className="h-screen">
-      <Canvas>
+      <div className="absolute top-5 rounded-md right-5 h-1/4 w-1/4 backdrop-blur-sm opacity-50 bg-black z-50 ">
+        <h1>Nombre</h1>
+      </div>
+      <Canvas castShadow>
         <ParkingModel />
         <directionalLight position={[0, 10, 5]} />
         <ambientLight />
