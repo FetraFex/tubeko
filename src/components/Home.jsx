@@ -35,7 +35,7 @@ const Home = () => {
     }
 
     return (
-        <div className='m h-screen bg-red-300 flex flex-col justify-center items-center text-center relative z-0 overflow-hidden '>
+        <div style={{backgroundColor:"#111111"}} className='m h-screen  flex flex-col justify-center items-center text-center relative z-0 overflow-hidden '>
             <svg
                 className="absolute z-0 top-0 right-0 translate-x-1/2"
                 width="800"
