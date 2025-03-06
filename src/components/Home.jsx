@@ -35,7 +35,7 @@ const Home = () => {
     }
 
     return (
-        <div style={{backgroundColor:"#111111"}} className='m h-screen  flex flex-col justify-center items-center text-center relative z-0 overflow-hidden '>
+        <div className='bg-custom-gradient h-screen  flex flex-col justify-center items-center text-center relative z-0 overflow-hidden '>
             <svg
                 className="absolute z-0 top-0 right-0 translate-x-1/2"
                 width="800"
@@ -44,8 +44,8 @@ const Home = () => {
             >
                 <defs>
                     <radialGradient id="radialGradient" cx="50%" cy="50%" r="50%">
-                        <stop offset="0%" stopColor="lightblue" />
-                        <stop offset="100%" stopColor="blue" />
+                        <stop offset="0%" stopColor="#646F56" />
+                        <stop offset="100%" stopColor="#314A3077" />
                     </radialGradient>
                 </defs>
                 <motion.path
@@ -71,7 +71,7 @@ const Home = () => {
                 />
             </svg>
             <svg
-                className="absolute z-0 top-0 left-1/2 -translate-x-1/2"
+                className="absolute z-0 top-0 left-1/2 -translate-x-1/2 "
                 width="800"
                 height="800"
                 xmlns="http://www.w3.org/2000/svg"
@@ -139,34 +139,36 @@ const Home = () => {
                     strokeWidth="2"
                 />
             </svg>
-
-            <p className='z-50'>Streamline Your <span className='px-2 py-1 bg-slate-400 rounded-full'><FontAwesomeIcon icon={faDownload} /> Downloads</span></p>
-            <div className='z-50 w-full justify-center items-center flex flex-col space-y-6'>
+            <div className='absolute backdrop-blur-4xl top-0 z-40 left-0 w-full h-full'></div>
+            
+            <p className='text-white z-50'>Streamline Your <span className='px-2 py-1 bg-white bg-opacity-20 rounded-full'><FontAwesomeIcon color='#4ade80' icon={faDownload} /> Downloads</span></p>
+            <div className='text-white z-50 w-full justify-center items-center flex flex-col space-y-6'>
                 <h1 className='text-6xl font-bold'>Effortlessly Download and Enjoy<br />Your YouTube Playlists</h1>
-                <div className='flex bg-blue-600 w-1/2 rounded-full'>
-                    <div className='py-4 w-1/12 rounded-s-full flex justify-center'><FontAwesomeIcon icon={faSearch} className='text-2xl' /></div>
+                <div className='flex bg-white w-1/2 rounded-full'>
+                    <div className='py-4 w-1/12 rounded-s-full flex justify-center'><FontAwesomeIcon icon={faSearch} color="#000" className='text-2xl' /></div>
                     <div className='w-10/12'><input onChange={(e) => setPlaylistId(e.target.value)} type="text" className='h-full w-full px-5 text-xl' placeholder='Paste the video or the playlist URL here ! 😉' /></div>
-                    <div className='py-4 w-1/12 rounded-e-full flex justify-center'><FontAwesomeIcon icon={faClose} className='text-2xl' /></div>
+                    <div className='py-4 w-1/12 rounded-e-full flex justify-center'><FontAwesomeIcon color="#000" icon={faClose} className='text-2xl' /></div>
                 </div>
                 <div className='flex space-x-2'>
-                    <button onClick={handleFetchVideos} className='bg-blue-700 pl-4 pr-2 py-2 rounded-xl font-medium flex justify-between items-center space-x-2'><span>Start conversion</span><FontAwesomeIcon className="bg-green-400 p-3 rounded-xl" icon={faArrowRight} /></button>
-                    <button className='bg-blue-700 px-4 rounded-xl font-medium border-2'>Quality <FontAwesomeIcon icon={faChevronDown} /></button>
+                    <button onClick={handleFetchVideos} className='bg-white text-black pl-4 pr-2 py-2 rounded-xl font-medium flex justify-between items-center space-x-2'><span>Start conversion</span><FontAwesomeIcon className="bg-green-400 p-3 rounded-xl" icon={faArrowRight} /></button>
+                    <button className='bg-white px-4 rounded-xl font-medium border-2'>Quality <FontAwesomeIcon icon={faChevronDown} /></button>
                 </div>
             </div>
             <div className='absolute bottom-8 w-full flex justify-between px-36'>
                 <div className="flex">
-                    <p>Follow Us</p>
-                    <div className='flex'>
+                    <p className='text-white'>Follow Us</p>
+                    <div className='flex text-white'>
                         <p>A</p>
                         <p>A</p>
                         <p>A</p>
                         <p>A</p>
                     </div>
                 </div>
-                <div className='flex items-center space-x-1'>
-                    <p><span className="font-medium">Scroll</span> to explore</p><FontAwesomeIcon icon={faArrowDown} />
+                <div className='flex items-center space-x-1 text-white'>
+                    <p><span className="font-medium">Scroll</span> to explore</p><FontAwesomeIcon color='#4ade80' icon={faArrowDown} />
                 </div>
             </div>
+            <Sparkles />
         </div>
     )
 }
