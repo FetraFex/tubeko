@@ -8,6 +8,8 @@ import { motion } from "framer-motion";
 import Sparkles from './Sparkles'
 
 const Home = () => {
+    const sparkles = Array.from({ length: 10 });
+
     const [playlistId, setPlaylistId] = useState("");
     const [videos, setVideos] = useState([])
     const morphVariants = {
@@ -141,9 +143,9 @@ const Home = () => {
             </svg>
             <div className='absolute backdrop-blur-4xl top-0 z-40 left-0 w-full h-full'></div>
             
-            <p className='text-white z-50'>Streamline Your <span className='px-2 py-1 bg-white bg-opacity-20 rounded-full'><FontAwesomeIcon color='#4ade80' icon={faDownload} /> Downloads</span></p>
-            <div className='text-white z-50 w-full justify-center items-center flex flex-col space-y-6'>
-                <h1 className='text-6xl font-bold'>Effortlessly Download and Enjoy<br />Your YouTube Playlists</h1>
+            <p className='text-white z-50 '>Streamline Your <span className='px-2 py-1 bg-white bg-opacity-20 rounded-full'><FontAwesomeIcon color='#4ade80' icon={faDownload} /> Downloads</span></p>
+            <div className='text-transparent z-50 w-full justify-center items-center flex flex-col space-y-6'>
+                <h1 className='text-6xl font-bold gradient-text'>Effortlessly Download and Enjoy<br />Your YouTube Playlists</h1>
                 <div className='flex bg-white w-1/2 rounded-full'>
                     <div className='py-4 w-1/12 rounded-s-full flex justify-center'><FontAwesomeIcon icon={faSearch} color="#000" className='text-2xl' /></div>
                     <div className='w-10/12'><input onChange={(e) => setPlaylistId(e.target.value)} type="text" className='h-full w-full px-5 text-xl' placeholder='Paste the video or the playlist URL here ! 😉' /></div>
@@ -168,7 +170,9 @@ const Home = () => {
                     <p><span className="font-medium">Scroll</span> to explore</p><FontAwesomeIcon color='#4ade80' icon={faArrowDown} />
                 </div>
             </div>
-            <Sparkles />
+            {sparkles.map((_, index) => (
+                <Sparkles key={index} />
+            ))}
         </div>
     )
 }
