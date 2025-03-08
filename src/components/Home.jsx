@@ -1,4 +1,5 @@
-import { faArrowDown, faArrowRight, faChevronDown, faDownload } from '@fortawesome/free-solid-svg-icons'
+import { faArrowDown, faArrowRight, faChevronDown, faDownload, faX } from '@fortawesome/free-solid-svg-icons'
+import { faInstagram, faFacebook, faWhatsapp, faTwitter, faXTwitter } from "@fortawesome/free-brands-svg-icons";
 import { faClose } from '@fortawesome/free-solid-svg-icons/faClose'
 import { faSearch } from '@fortawesome/free-solid-svg-icons/faSearch'
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome'
@@ -6,9 +7,10 @@ import React, { useEffect, useState } from 'react'
 import axios from "axios"
 import { motion } from "framer-motion";
 import Sparkles from './Sparkles'
+import Media from './Media';
 
 const Home = () => {
-    const sparkles = Array.from({ length: 10 });
+    const sparkles = Array.from({ length: 12 });
 
     const [playlistId, setPlaylistId] = useState("");
     const [videos, setVideos] = useState([])
@@ -156,14 +158,14 @@ const Home = () => {
                     <button className='bg-white px-4 rounded-xl font-medium border-2'>Quality <FontAwesomeIcon icon={faChevronDown} /></button>
                 </div>
             </div>
-            <div className='absolute bottom-8 w-full flex justify-between px-36'>
-                <div className="flex">
+            <div className='absolute z-50 bottom-8 w-full flex justify-between px-36'>
+                <div className="flex space-x-2">
                     <p className='text-white'>Follow Us</p>
-                    <div className='flex text-white'>
-                        <p>A</p>
-                        <p>A</p>
-                        <p>A</p>
-                        <p>A</p>
+                    <div className='flex text-white items-center space-x-1'>
+                        <FontAwesomeIcon className='bg-white rounded-full p-1' icon={faFacebook} color='black'/>
+                        <FontAwesomeIcon className='bg-white rounded-full p-1' icon={faInstagram} color='black'/>
+                        <FontAwesomeIcon className='bg-white rounded-full p-1' icon={faWhatsapp} color='black'/>
+                        <FontAwesomeIcon className='bg-white rounded-full p-1' icon={faXTwitter} color='black'/>
                     </div>
                 </div>
                 <div className='flex items-center space-x-1 text-white'>
@@ -171,8 +173,12 @@ const Home = () => {
                 </div>
             </div>
             {sparkles.map((_, index) => (
-                <Sparkles key={index} />
+                <Sparkles key={index} direction="up" />
             ))}
+            {sparkles.map((_, index) => (
+                <Sparkles key={index} direction="down" />
+            ))}
+            <Media />
         </div>
     )
 }
