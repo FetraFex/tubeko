@@ -6,24 +6,43 @@
 
 
 @layer components {
-    .blurry-border::before {
-      content: "";
-      position: absolute;
-      top: -7px;
-      left: -7px;
-      right: -7px;
-      bottom: -7px;
-      background: rgb(255, 255, 255, 1);
-      border-radius: 50%;
-      filter: blur(10px);
-      z-index: -1;
-    }
-
-    .gradient-text {
-        background: linear-gradient(90deg, #ffffff, #13ff56);
-        background-clip: text;
-        text-shadow: 0px 0px 25px rgba(255, 255, 255, 1);
-    }
-
+  .blurry-border::before {
+    content: "";
+    position: absolute;
+    top: -7px;
+    left: -7px;
+    right: -7px;
+    bottom: -7px;
+    background: rgb(255, 255, 255, 1);
+    border-radius: 50%;
+    filter: blur(10px);
+    z-index: -1;
   }
 
+  .gradient-text {
+    background: linear-gradient(90deg, #ffffff, #13ff56);
+    background-clip: text;
+    text-shadow: 0px 0px 25px rgba(255, 255, 255, 1);
+  }
+
+  .features-card {
+    background: linear-gradient(120deg, #121212, #1f1f1f);
+  }
+
+  .border-gradient-l {
+    background: linear-gradient(220deg, #494949, #60e0b3);
+  }
+
+  .border-gradient-c {
+    background: linear-gradient(220deg, #60e0b3, #494949, #60e0b3);
+  }
+
+  .border-gradient-r {
+    background: linear-gradient(120deg, #494949, #60e0b3);
+  }
+
+  .light-cursor {
+    background: radial-gradient(#60e0b342, rgba(124, 238, 200, 0) 70%);
+  }
+
+}

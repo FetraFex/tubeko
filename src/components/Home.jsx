@@ -155,17 +155,17 @@ const Home = () => {
                 </div>
                 <div className='flex space-x-2'>
                     <button onClick={handleFetchVideos} className='bg-white text-black pl-4 pr-2 py-2 rounded-xl font-medium flex justify-between items-center space-x-2'><span>Start conversion</span><FontAwesomeIcon className="bg-green-400 p-3 rounded-xl" icon={faArrowRight} /></button>
-                    <button className='bg-white px-4 rounded-xl font-medium border-2'>Quality <FontAwesomeIcon icon={faChevronDown} /></button>
+                    <button className='bg-transparent text-white px-4 rounded-xl font-medium border-2'>Quality <FontAwesomeIcon icon={faChevronDown} /></button>
                 </div>
             </div>
             <div className='absolute z-50 bottom-8 w-full flex justify-between px-36'>
                 <div className="flex space-x-2">
                     <p className='text-white'>Follow Us</p>
                     <div className='flex text-white items-center space-x-1'>
-                        <FontAwesomeIcon className='bg-white rounded-full p-1' icon={faFacebook} color='black'/>
-                        <FontAwesomeIcon className='bg-white rounded-full p-1' icon={faInstagram} color='black'/>
-                        <FontAwesomeIcon className='bg-white rounded-full p-1' icon={faWhatsapp} color='black'/>
-                        <FontAwesomeIcon className='bg-white rounded-full p-1' icon={faXTwitter} color='black'/>
+                        <FontAwesomeIcon className='bg-white rounded-full p-1 cursor-pointer' icon={faFacebook} color='black'/>
+                        <FontAwesomeIcon className='bg-white rounded-full p-1 cursor-pointer' icon={faInstagram} color='black'/>
+                        <FontAwesomeIcon className='bg-white rounded-full p-1 cursor-pointer' icon={faWhatsapp} color='black'/>
+                        <FontAwesomeIcon className='bg-white rounded-full p-1 cursor-pointer' icon={faXTwitter} color='black'/>
                     </div>
                 </div>
                 <div className='flex items-center space-x-1 text-white'>

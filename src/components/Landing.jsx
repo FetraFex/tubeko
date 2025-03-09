@@ -1,18 +1,19 @@
 import React from 'react'
-import Navbar from './navbar'
+import Navbar from './Navbar'
 import Home from './Home'
 import HowToUse from './HowToUse'
 import Features from './Features'
 import SupportedFormats from './SupportedFormats'
+import Footer from './Footer'
 
 const Landing = () => {
   return (
     <div>
         <Navbar />
         <Home />
-        <HowToUse />
         <Features />
         <SupportedFormats />
+        <Footer />
     </div>
   )
 }
