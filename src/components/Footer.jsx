@@ -1,6 +1,5 @@
 import { height } from '@fortawesome/free-solid-svg-icons/faClose'
 import React from 'react'
-import Fire from './Fire'
 
 const Footer = () => {
   return (
