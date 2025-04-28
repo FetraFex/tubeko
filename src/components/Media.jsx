@@ -10,17 +10,17 @@ const Media = () => {
     const getRandomInt = (min, max) => {
         return Math.floor(Math.random() * (max - min + 1)) + min;
     };
-    
+
     const generateUniqueRandomArray = (length, min, max) => {
         if (max - min + 1 < length) {
             throw new Error("Range is too small to generate unique numbers.");
         }
-    
+
         const uniqueNumbers = new Set();
         while (uniqueNumbers.size < length) {
             uniqueNumbers.add(getRandomInt(min, max));
         }
-    
+
         return Array.from(uniqueNumbers);
     };
 
@@ -28,18 +28,14 @@ const Media = () => {
     const firstHalfIndexes = randomIndexes.slice(0, Math.floor(randomIndexes.length / 2));
     const secondHalfIndexes = randomIndexes.slice(Math.floor(randomIndexes.length / 2));
 
-    console.log("firstHalfIndexes ", firstHalfIndexes);
-    console.log("secondHalfIndexes ", secondHalfIndexes);
-    
-
     let d = 0.3
 
 
     return (
-        <div className='flex absolute z-50 w-screen justify-around'>
+        <div className='flex absolute z-40 w-screen justify-around'>
             <div>
                 {firstHalfIndexes.map((indexValue, index) => (
-                    
+
                     <motion.div
                         key={index}
                         initial={{ scale: 2 }}
@@ -63,7 +59,7 @@ const Media = () => {
                 )}
             </div>
             <div>
-            {secondHalfIndexes.map((indexValue, index) => (
+                {secondHalfIndexes.map((indexValue, index) => (
                     <motion.div
                         key={index}
                         initial={{ scale: 2 }}
@@ -74,7 +70,7 @@ const Media = () => {
                             y: [0, (Math.random() > 0.5) ? -Math.random() * 300 : Math.random() * 300],
                         }}
                         transition={{
-                            duration:  Math.floor(Math.random() * (12 - 7 + 1)) + 7,
+                            duration: Math.floor(Math.random() * (12 - 7 + 1)) + 7,
                             delay: d + (index * 1.5),
                             repeat: Infinity,
                             ease: "linear",
