@@ -21,7 +21,7 @@ app.get('/api/playlist/:playlistId', async (req, res) => {
       const response = await axios.get(`${BASE_URL}/playlistItems`, {
         params: {
           part: 'snippet',
-          maxResults: 50,
+          maxResults: 20,
           playlistId: playlistId,
           pageToken: pageToken || '',
           key: API_KEY,
