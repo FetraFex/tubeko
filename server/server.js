@@ -113,28 +113,41 @@ app.get('/download/progress/:id', (req, res) => {
 
 app.get('/api/playlist/:playlistId', async (req, res) => {
   const { playlistId } = req.params;
-  const { pageToken } = req.query;
+  let { pageToken } = req.query;
+
+  let videos = [];
+  let nextPageToken = pageToken || '';
 
   try {
-    const response = await axios.get(`${BASE_URL}/playlistItems`, {
-      params: {
-        part: 'snippet',
-        maxResults: 50,
-        playlistId: playlistId,
-        pageToken: pageToken || '',
-        key: API_KEY,
-      },
-    });
+    do {
+      const response = await axios.get(`${BASE_URL}/playlistItems`, {
+        params: {
+          part: 'snippet',
+          maxResults: 50,
+          playlistId: playlistId,
+          pageToken: nextPageToken,
+          key: API_KEY,
+        },
+      });
 
-    const videos = response.data.items.map((item) => ({
-      title: item.snippet.title,
-      videoId: item.snippet.resourceId.videoId,
-      thumbnail: item.snippet.thumbnails.medium.url,
-    }));
+      // Add fetched videos to the array
+      videos.push(
+        ...response.data.items.map((item) => ({
+          title: item.snippet.title,
+          videoId: item.snippet.resourceId.videoId,
+          thumbnail: item.snippet.thumbnails.medium.url,
+        }))
+      );
 
+      // Update nextPageToken for the next request
+      nextPageToken = response.data.nextPageToken || null;
+
+    } while (nextPageToken);
+
+    // Send the combined list of videos as the response
     res.json({
       videos,
-      nextPageToken: response.data.nextPageToken || null,
+      totalVideos: videos.length,
     });
   } catch (error) {
     console.error('Error fetching playlist:', error);
