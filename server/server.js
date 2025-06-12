@@ -29,19 +29,40 @@ const BASE_URL = "https://www.googleapis.com/youtube/v3"
 const runYtDlpCommand = (args, options = {}) => {
   return new Promise((resolve, reject) => {
     try {
-      // Determine the correct binary path
       const ytdlpPath = path.join(
         __dirname,
         process.platform === 'win32' ? 'yt-dlp.exe' : 'yt-dlp'
       );
 
-      // Verify binary exists
       if (!fs.existsSync(ytdlpPath)) {
         throw new Error(`yt-dlp binary not found at ${ytdlpPath}`);
       }
 
-      // Create the process
-      const childProcess = spawn(ytdlpPath, args, {
+      // PROPERLY FORMATTED HEADERS - key points:
+      // 1. Use double quotes around the entire header value
+      // 2. Escape the quotes for Windows compatibility
+      const defaultArgs = [
+        '--no-check-certificates',
+        '--force-ipv4',
+        '--retries', '5',
+        '--fragment-retries', '5',
+        '--throttled-rate', '500K',
+        '--socket-timeout', '15',
+        // Correctly formatted User-Agent:
+        '--add-header', `User-Agent:"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"`,
+        // Correctly formatted Accept-Language:
+        '--add-header', `Accept-Language:"en-US,en;q=0.9"`,
+        '--dump-json',
+        '--no-warnings'
+      ];
+
+      // Combine arguments safely
+      const fullArgs = [...defaultArgs, ...args];
+
+      // Debug: Uncomment to see the exact command being executed
+      // console.log('Executing:', ytdlpPath, fullArgs.join(' '));
+
+      const childProcess = spawn(ytdlpPath, fullArgs, {
         stdio: ['ignore', 'pipe', 'pipe'],
         shell: true,
         windowsHide: true,
@@ -74,7 +95,6 @@ const runYtDlpCommand = (args, options = {}) => {
     }
   });
 };
-
 
 
 // SSE endpoint for progress updates
@@ -161,65 +181,128 @@ app.get('/videoInfo', async (req, res) => {
     const { url } = req.query;
     if (!url) return res.status(400).json({ error: 'URL required' });
 
+    // Properly formatted headers with escaped quotes
     const info = await runYtDlpCommand([
       url,
       '--dump-json',
       '--no-warnings',
-      '--force-ipv4'
+      '--force-ipv4',
+      '--no-check-certificates',
+      '--retries', '5',
+      '--fragment-retries', '5',
+      '--throttled-rate', '500K',
+      '--socket-timeout', '15',
+      '--add-header', 'User-Agent:"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"',
+      '--add-header', 'Accept-Language:"en-US,en;q=0.9"',
+      '--age-limit', '99',
+      // Add cookies if available (uncomment if needed)
+      // '--cookies', 'cookies.txt'
     ]);
 
-    // Process formats with better merging detection
-    const formats = info.formats.map(format => {
-      const isCombined = format.acodec && format.acodec !== 'none' &&
-        format.vcodec && format.vcodec !== 'none';
-      const isVideo = format.vcodec && format.vcodec !== 'none';
-      const isAudio = format.acodec && format.acodec !== 'none';
+    // Validate response structure
+    if (!info || !info.formats || !Array.isArray(info.formats)) {
+      throw new Error('Invalid response from YouTube - missing formats data');
+    }
 
-      let type;
-      if (isCombined) type = 'video+audio';
-      else if (isVideo) type = 'video only';
-      else if (isAudio) type = 'audio only';
+    // Process formats with additional validation
+    const formats = info.formats
+      .map(format => {
+        try {
+          const hasVideo = format.vcodec && format.vcodec !== 'none';
+          const hasAudio = format.acodec && format.acodec !== 'none';
 
-      return {
-        itag: format.format_id,
-        quality: format.height ? `${format.height}p` :
-          format.abr ? `${format.abr}kbps` :
-            format.format_note || format.ext.toUpperCase(),
-        type,
-        codec: {
-          video: format.vcodec,
-          audio: format.acodec
-        },
-        filesize: format.filesize ? `${(format.filesize / (1024 * 1024)).toFixed(2)}MB` : 'N/A'
-      };
-    }).filter(f => f.type); // Remove invalid formats
+          let type;
+          if (hasVideo && hasAudio) type = 'video+audio';
+          else if (hasVideo) type = 'video only';
+          else if (hasAudio) type = 'audio only';
+          else return null;
 
-    // Add merge suggestions for higher quality videos
+          // Calculate quality label
+          let quality;
+          if (format.height) {
+            quality = `${format.height}p`;
+          } else if (format.abr) {
+            quality = `${Math.round(format.abr)}kbps`;
+          } else {
+            quality = format.format_note || (format.ext ? format.ext.toUpperCase() : 'N/A');
+          }
+
+          return {
+            itag: format.format_id || 'N/A',
+            quality,
+            type,
+            codec: {
+              video: format.vcodec || 'none',
+              audio: format.acodec || 'none'
+            },
+            filesize: format.filesize ? `${(format.filesize / (1024 * 1024)).toFixed(2)}MB` : 'N/A',
+            url: format.url || null  // Add direct URL if available
+          };
+        } catch (formatError) {
+          console.warn('Error processing format:', formatError);
+          return null;
+        }
+      })
+      .filter(Boolean); // Remove null entries
+
+    // Enhanced format merging with compatibility check
     const enhancedFormats = formats.map(format => {
       if (format.type === 'video only') {
-        // Find compatible audio streams
-        const compatibleAudio = formats.find(f =>
-          f.type === 'audio only' &&
-          !f.quality.includes('video') // Ensure it's pure audio
-        );
+        // Find best matching audio stream
+        const compatibleAudio = formats
+          .filter(f => f.type === 'audio only')
+          .sort((a, b) => {
+            // Prefer higher bitrate audio
+            const aBitrate = parseInt(a.quality) || 0;
+            const bBitrate = parseInt(b.quality) || 0;
+            return bBitrate - aBitrate;
+          })[0];
+
         return {
           ...format,
           canMerge: !!compatibleAudio,
-          mergeWith: compatibleAudio?.itag
+          mergeWith: compatibleAudio?.itag || null,
+          mergeQuality: compatibleAudio?.quality || null
         };
       }
       return format;
     });
 
-    res.json({
-      title: info.title,
-      thumbnail: info.thumbnail,
-      duration: info.duration_string,
-      formats: enhancedFormats
-    });
+    // Final response validation
+    const response = {
+      title: info.title || 'No title available',
+      thumbnail: info.thumbnail || null,
+      duration: info.duration_string || '0:00',
+      formats: enhancedFormats,
+      warnings: info._warnings || []  // Capture any yt-dlp warnings
+    };
+
+    // Check if we have any usable formats
+    if (enhancedFormats.length === 0) {
+      response.warnings.push('No playable formats found');
+    }
+
+    res.json(response);
   } catch (error) {
-    console.error('Error:', error);
-    res.status(500).json({ error: error.message });
+    console.error('Error in /videoInfo:', error);
+
+    // Enhanced error messages
+    let statusCode = 500;
+    let errorMessage = error.message;
+
+    if (error.message.includes('403')) {
+      statusCode = 403;
+      errorMessage = 'YouTube blocked the request. Try again later or use cookies.';
+    } else if (error.message.includes('Invalid response')) {
+      statusCode = 502;
+    } else if (error.message.includes('URL required')) {
+      statusCode = 400;
+    }
+
+    res.status(statusCode).json({
+      error: errorMessage,
+      details: process.env.NODE_ENV === 'development' ? error.stack : undefined
+    });
   }
 });
 
