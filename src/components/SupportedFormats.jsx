@@ -25,7 +25,6 @@ const SupportedFormats = () => {
             like **1080p, 720p, and 480p**. On the other hand, **MP3** is the most popular audio format, offering excellent sound quality with small file sizes,
             making it perfect for music and podcasts. Whether you're downloading videos or extracting audio, these formats ensure smooth playback on any device.
           </p>
-
           {/* Format List */}
           <ul className="space-y-2 text-gray-300 hidden">
             <li>
