@@ -11,6 +11,8 @@ import Media from './Media';
 import { ClipLoader, DotLoader, CircleLoader, BeatLoader } from "react-spinners";
 import Video from './Video';
 import { useMediaQuery } from 'react-responsive';
+import { useLanguage } from '../Context/LanguageContext';
+import dictionary from '../Context/Dictionnary'
 
 const Home = () => {
     const isMobileOrTablet = useMediaQuery({query: "(max-width: 1280px)"})
@@ -23,6 +25,8 @@ const Home = () => {
 
     const [playlistId, setPlaylistId] = useState("");
     const [videos, setVideos] = useState([])
+
+      const { language } = useLanguage()
 
     // Automatically trigger the download of the first video
     useEffect(() => {
@@ -204,18 +208,18 @@ const Home = () => {
                 </svg>
                 <div className='absolute backdrop-blur-4xl top-0 z-40 left-0 w-full h-full'></div>
 
-                <p className='text-white z-50'>Streamline Your <span className='px-2 py-1 bg-white bg-opacity-20 rounded-full'><FontAwesomeIcon color='#4ade80' icon={faDownload} /> Downloads</span></p>
+                <p className='text-white z-50'>{dictionary[language].stream[0]} <span className='px-2 py-1 bg-white bg-opacity-20 rounded-full'><FontAwesomeIcon color='#4ade80' icon={faDownload} /> {dictionary[language].stream[1]}</span></p>
                 <div className='text-transparent z-50 w-full justify-center items-center flex flex-col space-y-6 px-2'>
-                    <h1 className='text-3xl xl:text-6xl lg:text-4xl font-bold gradient-text'>Effortlessly Download and Enjoy<br />Your YouTube Playlists</h1>
+                    <h1 className='text-3xl xl:text-6xl lg:text-4xl font-bold gradient-text'>{dictionary[language].headline[0]}<br />{dictionary[language].headline[1]}</h1>
                     <div className='flex bg-white xl:w-7/12 w-full sm:w-10/12 lg:w-8/12 rounded-full'>
                         <div className='py-4 w-1/12 rounded-s-full flex justify-center'><FontAwesomeIcon icon={faSearch} color="#000" className='xl:text-2xl text-lg' /></div>
                         <div className='w-10/12'>
-                            <input onChange={(e) => setPlaylistId(e.target.value)} type="text" className='z-50 h-full text-black w-full px-2 xl:px-5 text-sm xl:text-lg' placeholder='Paste the video or the playlist URL here ! 😉' /></div>
+                            <input onChange={(e) => setPlaylistId(e.target.value)} type="text" className='z-50 h-full text-black w-full px-2 xl:px-5 text-sm xl:text-lg' placeholder={`${dictionary[language].placeholder} 😉`} /></div>
                         <div className='py-4 w-1/12 rounded-e-full flex justify-center'><FontAwesomeIcon color="#000" icon={faClose} className='text-lg xl:text-2xl' /></div>
                     </div>
                     <div className='flex space-x-4'>
-                        <button onClick={handleFetchVideos} className='bg-white text-black hover:scale-105 transition-all duration-200 pl-4 pr-2 py-1 xl:py-2 rounded-xl font-medium flex justify-between items-center space-x-2'><span>Start conversion</span><FontAwesomeIcon className="bg-green-400 p-2 xl:p-3 rounded-xl text-sm xl:text-base" icon={faArrowRight} /></button>
-                        <button className='bg-transparent text-white px-4 rounded-xl font-medium border-2'>Quality <FontAwesomeIcon icon={faChevronDown} /></button>
+                        <button onClick={handleFetchVideos} className='bg-white text-black hover:scale-105 transition-all duration-200 pl-4 pr-2 py-1 xl:py-2 rounded-xl font-medium flex justify-between items-center space-x-2'><span>{dictionary[language].button.conversion}</span><FontAwesomeIcon className="bg-green-400 p-2 xl:p-3 rounded-xl text-sm xl:text-base" icon={faArrowRight} /></button>
+                        <button className='bg-transparent text-white px-4 rounded-xl font-medium border-2'>{dictionary[language].button.quality} <FontAwesomeIcon icon={faChevronDown} /></button>
                     </div>
                     <div>
                         <BeatLoader color="#fff" size={10} />
@@ -226,7 +230,7 @@ const Home = () => {
                 </div>
                 <div className='absolute z-50 bottom-8 w-full flex justify-between xl:px-36 px-3 sm:px-10 lg:px-20'>
                     <div className="flex gap-2">
-                        <p className='text-white hidden xl:block'>Follow Us</p>
+                        <p className='text-white hidden xl:block'>{dictionary[language].followus}</p>
                         <div className='flex text-white items-center space-x-1'>
                             <FontAwesomeIcon className='bg-white rounded-full p-1 cursor-pointer' icon={faFacebook} color='black' />
                             <FontAwesomeIcon className='bg-white rounded-full p-1 cursor-pointer' icon={faInstagram} color='black' />
@@ -235,7 +239,7 @@ const Home = () => {
                         </div>
                     </div>
                     <div className='flex items-center space-x-1 text-white'>
-                        <p><span className="font-medium">{ isMobileOrTablet?  "Swipe" : "Scroll" }</span> to explore</p><FontAwesomeIcon color='#4ade80' icon={faArrowDown} />
+                        <p><span className="font-medium">{ isMobileOrTablet?  dictionary[language].swipe : dictionary[language].scroll }</span> {dictionary[language].explore }</p><FontAwesomeIcon color='#4ade80' icon={faArrowDown} />
                     </div>
                 </div>
                 {sparkles.map((_, index) => (
