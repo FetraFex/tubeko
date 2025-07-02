@@ -4,6 +4,58 @@
 @tailwind components;
 @tailwind utilities;
 
+/* styles.css or inside a <style> tag */
+.custom-scrollbar::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background-color: #d31c1c; /* thumb color */
+  border-radius: 8px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  background-color: #9fe75b; /* thumb hover color */
+}
+
+.custom-scrollbar::-webkit-scrollbar-track {
+  background-color: #ff4c4c; /* track color */
+  border-radius: 8px;
+}
+
+
+/* Shining animation */
+.shining-effect {
+  position: absolute;
+  top: 0;
+  left: -100%;
+  width: 100px;
+  height: 100%;
+  background: linear-gradient(
+    120deg,
+    transparent,
+    #e7fff0c2,
+    transparent
+  );
+  animation: shine 1.8s infinite linear;
+}
+
+@keyframes shine {
+  0% {
+    left: -100%;
+  }
+  100% {
+    left: 100%;
+  }
+}
+
+/* Firefox */
+.custom-scrollbar {
+  scrollbar-width: thin; /* "auto" or "thin" */
+  scrollbar-color: #4ade80 #535353a8; /* thumb and track colors */
+}
+
 
 @layer components {
   .blurry-border::before {

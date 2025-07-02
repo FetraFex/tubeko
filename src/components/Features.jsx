@@ -42,7 +42,7 @@ const Features = () => {
   }, [isInside]); // Re-run when `isInside` changes
 
   return (
-    <div ref={sectionRef} className='relative h-screen bg-custom-gradient flex items-center justify-center'>
+    <div ref={sectionRef} className='relative min-h-screen bg-custom-gradient flex items-center justify-center'>
       <div
         ref={cursorRef}
         className="absolute w-96 h-96 light-cursor rounded-full pointer-events-none transition-transform duration-75"
@@ -54,13 +54,13 @@ const Features = () => {
         }}
       />
       <div>
-        <h2 className='text-5xl text-white font-bold text-center mb-3'>Features</h2>
-        <p className="text-gray-400 text-lg mb-4 text-center">
+        <h2 className='text-3xl xl:text-5xl text-white font-bold text-center mb-1 xl:mb-3'>Features</h2>
+        <p className="text-gray-400 xl:text-lg text-xs mb-4 text-center">
           Explore the key functionalities that make our service stand out.
         </p>
-        <div className="flex space-x-6 mt-10">
+        <div className="flex flex-col xl:flex-row px-4 xl:space-x-6 space-x-0 space-y-4 xl:space-y-0  mt-5 xl:mt-10">
           <div className="relative flex-1 p-[2px] rounded-lg border-gradient-l cursor-pointer group hover:shadow-2xl hover:shadow-[#72ffce9f] transition-all duration-300">
-            <div className="p-8 features-card text-white rounded-lg">
+            <div className="px-4 py-3 xl:p-8 features-card min-h-96 text-white rounded-lg">
               <div className="flex justify-center h-32 items-center gap-2">
                 <FontAwesomeIcon icon={faYoutube} size="2xl" className='text-gray-400 group-hover:drop-shadow-[0_0px_8px_#72ffce] group-hover:text-[#72ffce] bg-transparent -rotate-45 -translate-x-8 group-hover:rotate-0 group-hover:translate-x-0 group-hover:light-icon transition-all duration-300 ' />
                 <FontAwesomeIcon icon={faVideo} size="2xl" className='text-gray-400 group-hover:drop-shadow-[0_0px_8px_#72ffce] group-hover:text-[#72ffce] translate-y-5 group-hover:translate-y-0 transition-all duration-300' />
@@ -78,7 +78,7 @@ const Features = () => {
           </div>
 
           <div className="relative flex-1 p-[2px] rounded-lg border-gradient-c cursor-pointer group hover:shadow-2xl hover:shadow-[#72ffce9f] transition-all duration-300">
-            <div className="p-8 features-card h-full text-white rounded-lg">
+            <div className="px-4 py-3 xl:p-8 features-card min-h-96 h-full text-white rounded-lg">
               <div className="flex justify-center h-32 items-center gap-2">
                 <FontAwesomeIcon icon={faYoutube} size="2xl" className='text-gray-400 group-hover:drop-shadow-[0_0px_8px_#72ffce] group-hover:text-[#72ffce] -rotate-45 group-hover:rotate-0 transition-all duration-300' />
                 <FontAwesomeIcon icon={faFilm} size="2xl" className='text-gray-400 group-hover:drop-shadow-[0_0px_8px_#72ffce] group-hover:text-[#72ffce] -translate-y-10 rotate-45 group-hover:translate-y-0 group-hover:rotate-0 transition-all duration-300' />
@@ -95,7 +95,7 @@ const Features = () => {
             </div>
           </div>
           <div className="relative flex-1 p-[2px] rounded-lg border-gradient-r cursor-pointer group hover:shadow-2xl hover:shadow-[#72ffce9f] transition-all duration-300">
-            <div className="p-8 features-card h-full text-white rounded-lg">
+            <div className="px-4 py-3 xl:p-8 features-card min-h-96 h-full text-white rounded-lg">
               <div className="flex justify-center h-32 items-center gap-2">
                 <FontAwesomeIcon icon={faLanguage} size="2xl" className='text-gray-400 group-hover:drop-shadow-[0_0px_8px_#72ffce] group-hover:text-[#72ffce] -translate-x-5 -rotate-45 translate-y-5 group-hover:translate-x-0 group-hover:translate-y-0 group-hover:rotate-0 transition-all duration-300' />
                 <FontAwesomeIcon icon={faTablet} size="2xl" className='text-gray-400 group-hover:drop-shadow-[0_0px_8px_#72ffce] group-hover:text-[#72ffce] -translate-x-2 -translate-y-6 -rotate-45 group-hover:translate-x-0 group-hover:translate-y-0 group-hover:rotate-0 transition-all duration-300' />

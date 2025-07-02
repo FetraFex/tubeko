@@ -3,19 +3,68 @@ import { faInstagram, faFacebook, faWhatsapp, faTwitter, faXTwitter } from "@for
 import { faClose } from '@fortawesome/free-solid-svg-icons/faClose'
 import { faSearch } from '@fortawesome/free-solid-svg-icons/faSearch'
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome'
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useState, useRef } from 'react'
 import axios from "axios"
 import { motion } from "framer-motion";
 import Sparkles from './Sparkles'
 import Media from './Media';
 import { ClipLoader, DotLoader, CircleLoader, BeatLoader } from "react-spinners";
 import Video from './Video';
+import { useMediaQuery } from 'react-responsive';
 
 const Home = () => {
+    const isMobileOrTablet = useMediaQuery({query: "(max-width: 1280px)"})
     const sparkles = Array.from({ length: 12 });
+    const [currentIndex, setCurrentIndex] = useState(null);
+    const videoRefs = useRef([]);
+
+    const [downloadQueue, setDownloadQueue] = useState([]);
+    const [activeDownload, setActiveDownload] = useState(null);
 
     const [playlistId, setPlaylistId] = useState("");
     const [videos, setVideos] = useState([])
+
+    // Automatically trigger the download of the first video
+    useEffect(() => {
+        if (currentIndex !== null && currentIndex < videos.length) {
+            videoRefs.current[currentIndex]?.handleDownload();
+        }
+    }, [currentIndex]);
+
+
+    // Function to start downloading from a specific index
+    const startDownloadsFromIndex = (startIndex) => {
+        const remainingVideos = videos.slice(startIndex).map((_, i) => startIndex + i);
+        console.log(remainingVideos);
+        setDownloadQueue(remainingVideos);
+    };
+
+    // Function to start the download process
+    const startDownload = () => {
+        const newQueue = videos.map((_, index) => index);
+        setDownloadQueue(newQueue);
+    };
+
+    // Process next download whenever the queue changes
+    useEffect(() => {
+        if (downloadQueue.length > 0) {
+            console.log("Misy ao");
+
+            const nextIndex = downloadQueue[0];
+            setActiveDownload(nextIndex);
+            videoRefs.current[nextIndex]?.handleDownload();
+        } else {
+            console.log("Tsy misy ao e");
+        }
+    }, [downloadQueue]); // Runs when `downloadQueue` updates
+
+
+    // Function to trigger the next video
+    const handleComplete = () => {
+        setDownloadQueue(prev => prev.slice(1)); // Triggers `useEffect` again
+    };
+
+
     const morphVariants = {
         animate: {
             d: [
@@ -34,11 +83,18 @@ const Home = () => {
     const handleFetchVideos = async () => {
         try {
             const response = await axios.get(`http://localhost:3000/api/playlist/${playlistId}`)
-            console.log(response.data.videos)
+            console.log("Next Page token: ", response.data.nextPageToken);
+
+            setVideos(response.data.videos)
         } catch (error) {
             console.log("Error fetching videos: ", error.message);
         }
     }
+
+    // Log videos when they change
+    useEffect(() => {
+        console.log("Videos updated:", videos)
+    }, [videos])
 
     return (
         <div>
@@ -149,25 +205,28 @@ const Home = () => {
                 <div className='absolute backdrop-blur-4xl top-0 z-40 left-0 w-full h-full'></div>
 
                 <p className='text-white z-50'>Streamline Your <span className='px-2 py-1 bg-white bg-opacity-20 rounded-full'><FontAwesomeIcon color='#4ade80' icon={faDownload} /> Downloads</span></p>
-                <div className='text-transparent z-50 w-full justify-center items-center flex flex-col space-y-6'>
-                    <h1 className='text-6xl font-bold gradient-text'>Effortlessly Download and Enjoy<br />Your YouTube Playlists</h1>
-                    <div className='flex bg-white w-1/2 rounded-full'>
-                        <div className='py-4 w-1/12 rounded-s-full flex justify-center'><FontAwesomeIcon icon={faSearch} color="#000" className='text-2xl' /></div>
+                <div className='text-transparent z-50 w-full justify-center items-center flex flex-col space-y-6 px-2'>
+                    <h1 className='text-3xl xl:text-6xl font-bold gradient-text'>Effortlessly Download and Enjoy<br />Your YouTube Playlists</h1>
+                    <div className='flex bg-white xl:w-1/2 w-full  rounded-full'>
+                        <div className='py-4 w-1/12 rounded-s-full flex justify-center'><FontAwesomeIcon icon={faSearch} color="#000" className='xl:text-2xl text-lg' /></div>
                         <div className='w-10/12'>
-                            <input onChange={(e) => setPlaylistId(e.target.value)} type="text" className='z-50 h-full text-black w-full px-5 text-xl' placeholder='Paste the video or the playlist URL here ! 😉' /></div>
-                        <div className='py-4 w-1/12 rounded-e-full flex justify-center'><FontAwesomeIcon color="#000" icon={faClose} className='text-2xl' /></div>
+                            <input onChange={(e) => setPlaylistId(e.target.value)} type="text" className='z-50 h-full text-black w-full px-2 xl:px-5 text-sm xl:text-lg' placeholder='Paste the video or the playlist URL here ! 😉' /></div>
+                        <div className='py-4 w-1/12 rounded-e-full flex justify-center'><FontAwesomeIcon color="#000" icon={faClose} className='text-lg xl:text-2xl' /></div>
                     </div>
                     <div className='flex space-x-2'>
-                        <button onClick={handleFetchVideos} className='bg-white text-black pl-4 pr-2 py-2 rounded-xl font-medium flex justify-between items-center space-x-2'><span>Start conversion</span><FontAwesomeIcon className="bg-green-400 p-3 rounded-xl" icon={faArrowRight} /></button>
+                        <button onClick={handleFetchVideos} className='bg-white text-black pl-4 pr-2 py-1 xl:py-2 rounded-xl font-medium flex justify-between items-center space-x-2'><span>Start conversion</span><FontAwesomeIcon className="bg-green-400 p-2 xl:p-3 rounded-xl text-sm xl:text-base" icon={faArrowRight} /></button>
                         <button className='bg-transparent text-white px-4 rounded-xl font-medium border-2'>Quality <FontAwesomeIcon icon={faChevronDown} /></button>
                     </div>
                     <div>
                         <BeatLoader color="#fff" size={10} />
                     </div>
+                    {videos.length && (<div>
+                        <button onClick={startDownload} className="rounded-lg  hover:bg-green-300 transition-all duration-300 bg-green-400 px-8 py-2 text-black font-medium text-lg">Start Download</button>
+                    </div>)}
                 </div>
-                <div className='absolute z-50 bottom-8 w-full flex justify-between px-36'>
+                <div className='absolute z-50 bottom-8 w-full flex justify-between xl:px-36 px-3'>
                     <div className="flex space-x-2">
-                        <p className='text-white'>Follow Us</p>
+                        <p className='text-white hidden xl:block'>Follow Us</p>
                         <div className='flex text-white items-center space-x-1'>
                             <FontAwesomeIcon className='bg-white rounded-full p-1 cursor-pointer' icon={faFacebook} color='black' />
                             <FontAwesomeIcon className='bg-white rounded-full p-1 cursor-pointer' icon={faInstagram} color='black' />
@@ -176,7 +235,7 @@ const Home = () => {
                         </div>
                     </div>
                     <div className='flex items-center space-x-1 text-white'>
-                        <p><span className="font-medium">Scroll</span> to explore</p><FontAwesomeIcon color='#4ade80' icon={faArrowDown} />
+                        <p><span className="font-medium">{ isMobileOrTablet?  "Swipe" : "Scroll" }</span> to explore</p><FontAwesomeIcon color='#4ade80' icon={faArrowDown} />
                     </div>
                 </div>
                 {sparkles.map((_, index) => (
@@ -188,18 +247,20 @@ const Home = () => {
                 <Media />
             </div>
             <div className="bg-custom-gradient w-full flex justify-center">
-                <div className='lg:w-1/2 max-h-[85vh] overflow-y-auto flex flex-col gap-y-8 p-10'>
-                    <Video title="Sample Video" thumbnail="/images/téléchargement.jpeg" videoId="12345" />
-                    <Video title="Sample Video" thumbnail="/images/téléchargement.jpeg" videoId="12345" />
-                    <Video title="Sample Video" thumbnail="/images/téléchargement.jpeg" videoId="12345" />
-                    <Video title="Sample Video" thumbnail="/images/téléchargement.jpeg" videoId="12345" />
-                    <Video title="Sample Video" thumbnail="/images/téléchargement.jpeg" videoId="12345" />
-                    <Video title="Sample Video" thumbnail="/images/téléchargement.jpeg" videoId="12345" />
-                    <Video title="Sample Video" thumbnail="/images/téléchargement.jpeg" videoId="12345" />
-                    <Video title="Sample Video" thumbnail="/images/téléchargement.jpeg" videoId="12345" />
-                    <Video title="Sample Video" thumbnail="/images/téléchargement.jpeg" videoId="12345" />
-                    <Video title="Sample Video" thumbnail="/images/téléchargement.jpeg" videoId="12345" />
-                    <Video title="Sample Video" thumbnail="/images/téléchargement.jpeg" videoId="12345" />
+                <div className='lg:w-1/2 max-h-[85vh] overflow-y-auto flex custom-scrollbar flex-col gap-y-8 p-10'>
+                    {videos.length === 0 ? (
+                        <p>No videos found.</p>
+                    ) : (
+                        videos.map((video, index) => (
+                            <Video
+                                key={index}
+                                ref={(el) => (videoRefs.current[index] = el)}
+                                onComplete={handleComplete}
+                                title={video.title} thumbnail={video.thumbnail} videoId={video.videoId}
+                                onQueueAfter={() => startDownloadsFromIndex(index)}
+                            />
+                        ))
+                    )}
                 </div>
             </div>
         </div>
