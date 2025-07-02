@@ -24,8 +24,8 @@ const Footer = () => {
           </div>
         </div>
       </div>
-      <div className=' bg-[#0c0c0c] flex flex-col-reverse xl:flex-row gap-5 justify-between py-4 text-white xl:px-36 px-3'>
-        <p className='text-xs '>© 2025 Tubeko. All rights reserved.</p>
+      <div className=' bg-[#0c0c0c] flex flex-col-reverse sm:flex-row gap-5 justify-between py-4 text-white xl:px-36 px-3'>
+        <p className='text-xs sm:text-sm xl:text-base'>© 2025 Tubeko. All rights reserved.</p>
         <p className='font-medium cursor-pointer'>Terms & conditions | Privacy Policy</p>
       </div>
     </div>

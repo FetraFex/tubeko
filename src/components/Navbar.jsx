@@ -8,7 +8,7 @@ const Navbar = () => {
   const isMobileOrTablet = useMediaQuery({query: "(max-width: 1280px)"})
   const [isMenuOpen, setIsMenuOpen] = useState(isMobileOrTablet? false : true)
   return (
-    <div className='fixed top-0 w-full bg-transparent text-white xl:px-36 py-3 px-3 xl:py-6 flex justify-between items-center z-50'>
+    <div className='fixed top-0 w-full bg-transparent text-white xl:px-36 py-3 sm:px-10 lg:px-20 lg:py-6 px-3  flex justify-between items-center z-50'>
       <div className='flex lg:space-x-24'>
         <h1>Tubeko</h1>
         <AnimatePresence>

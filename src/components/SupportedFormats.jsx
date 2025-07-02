@@ -15,11 +15,11 @@ const SupportedFormats = () => {
           <h3 className='text-4xl font-bold'>MP4</h3>
         </div>
       </div>
-      <div className='flex-1 text-white justify-center flex  items-center px-4 bg-[#0F1112] xl:bg-transparent py-7'>
-        <div className="xl:w-2/3 w-full xl:space-y-8 space-y-2">
+      <div className='flex-1 text-white justify-center flex items-center px-4 bg-[#0F1112] xl:bg-transparent py-7'>
+        <div className="xl:w-2/3 w-full sm:w-10/12  xl:space-y-8 space-y-2">
           <h4 className="text-4xl font-bold text-white xl:mb-3 mb-0"><FontAwesomeIcon icon={faMusic} /> Supported Formats</h4>
           {/* Description */}
-          <p className="text-gray-300 mb-4  text-lg">
+          <p className="text-gray-300 mb-4 text-lg">
             Our platform supports only **MP3** for audio and **MP4** for video to provide the best quality and compatibility across all devices.
             **MP4** is a widely used video format that balances high quality with efficient compression, allowing you to download videos in various resolutions
             like **1080p, 720p, and 480p**. On the other hand, **MP3** is the most popular audio format, offering excellent sound quality with small file sizes,
