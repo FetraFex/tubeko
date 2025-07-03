@@ -45,7 +45,7 @@ const Features = () => {
   }, [isInside]); // Re-run when `isInside` changes
 
   return (
-    <div ref={sectionRef} className='relative min-h-screen bg-custom-gradient flex items-center justify-center'>
+    <div ref={sectionRef} className='relative min-h-screen bg-custom-gradient flex items-center justify-center sm:px-10 lg:px-20 xl:px-36'>
       <div
         ref={cursorRef}
         className="absolute w-96 h-96 light-cursor rounded-full pointer-events-none transition-transform duration-75"

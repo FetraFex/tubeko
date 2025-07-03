@@ -11,7 +11,7 @@ import Flag from 'react-world-flags';
 const Navbar = () => {
   const isMobileOrTablet = useMediaQuery({ query: "(max-width: 1280px)" })
   const [isMenuOpen, setIsMenuOpen] = useState(isMobileOrTablet ? false : true)
-  const { language } = useLanguage()
+  const { language, setLanguage } = useLanguage()
   const [isDropdownOpen, setIsDropdownOpen] = useState(false)
 
   return (
@@ -37,15 +37,15 @@ const Navbar = () => {
           <AnimatePresence>
             {isDropdownOpen &&
               <motion.div initial={{ y: "-10%", opacity: 0 }} animate={{ y: "0", opacity: 1 }} exit={{ y: "-10%", opacity: 0 }} className='flex flex-col rounded-xl absolute top-full mt-2 bg-black bg-opacity-40 left-0'>
-                <div className=" hover:bg-white hover:bg-opacity-10 transition-all duration-200 rounded-xl px-8 py-3 flex gap-2">
+                <div onClick={() => setLanguage("en")} className=" hover:bg-white hover:bg-opacity-10 transition-all duration-200 rounded-xl px-8 py-3 flex gap-2">
                   <Flag code='US' className='w-5' />
                   <p>{dictionary[language].lang.en}</p>
                 </div>
-                <div className=" hover:bg-white hover:bg-opacity-10 transition-all duration-200 rounded-xl px-8 py-3 flex gap-2">
+                <div onClick={() => setLanguage("mg")} className=" hover:bg-white hover:bg-opacity-10 transition-all duration-200 rounded-xl px-8 py-3 flex gap-2">
                   <Flag code='MG' className='w-5' />
                   <p>{dictionary[language].lang.mg}</p>
                 </div>
-                <div className=" hover:bg-white hover:bg-opacity-10 transition-all duration-200 rounded-xl px-8 py-3 flex gap-2">
+                <div onClick={() => setLanguage("fr")} className=" hover:bg-white hover:bg-opacity-10 transition-all duration-200 rounded-xl px-8 py-3 flex gap-2">
                   <Flag code='FR' className='w-5' />
                   <p>{dictionary[language].lang.fr}</p>
                 </div>
