@@ -38,9 +38,6 @@ const runYtDlpCommand = (args, options = {}) => {
         throw new Error(`yt-dlp binary not found at ${ytdlpPath}`);
       }
 
-      // PROPERLY FORMATTED HEADERS - key points:
-      // 1. Use double quotes around the entire header value
-      // 2. Escape the quotes for Windows compatibility
       const defaultArgs = [
         '--no-check-certificates',
         '--force-ipv4',
@@ -48,23 +45,23 @@ const runYtDlpCommand = (args, options = {}) => {
         '--fragment-retries', '5',
         '--throttled-rate', '500K',
         '--socket-timeout', '15',
-        // Correctly formatted User-Agent:
-        '--add-header', `User-Agent:"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"`,
-        // Correctly formatted Accept-Language:
-        '--add-header', `Accept-Language:"en-US,en;q=0.9"`,
+
+        // ✅ Correct header argument usage (2 separate elements)
+        '--add-header', 'User-Agent:Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36',
+        '--add-header', 'Accept-Language:en-US,en;q=0.9',
+
         '--dump-json',
         '--no-warnings'
       ];
 
-      // Combine arguments safely
       const fullArgs = [...defaultArgs, ...args];
 
-      // Debug: Uncomment to see the exact command being executed
-      // console.log('Executing:', ytdlpPath, fullArgs.join(' '));
+      // ✅ Print to confirm headers are intact
+      console.log('Spawning yt-dlp with args:\n', fullArgs);
 
       const childProcess = spawn(ytdlpPath, fullArgs, {
         stdio: ['ignore', 'pipe', 'pipe'],
-        shell: true,
+        shell: false, // ✅ must be false
         windowsHide: true,
         ...options
       });
@@ -95,6 +92,7 @@ const runYtDlpCommand = (args, options = {}) => {
     }
   });
 };
+
 
 
 // SSE endpoint for progress updates
@@ -317,79 +315,110 @@ app.get('/download', async (req, res) => {
   const downloadId = id || Math.random().toString(36).substring(7);
   const ytdlpPath = path.join(__dirname, process.platform === 'win32' ? 'yt-dlp.exe' : 'yt-dlp');
 
-  try {
-    if (!fs.existsSync(ytdlpPath)) {
-      throw new Error(`yt-dlp binary not found at ${ytdlpPath}`);
-    }
-
-    const childProcess = spawn(ytdlpPath, [
-      url,
-      '-f', itag,
-      '--no-warnings',
-      '--newline', // Important for progress parsing
-      '--force-ipv4',
-      '--socket-timeout', '30',
-      '-o', '-'
-    ], {
-      stdio: ['ignore', 'pipe', 'pipe'],
-      shell: true,
-      windowsHide: true
+  // Verify yt-dlp exists
+  if (!fs.existsSync(ytdlpPath)) {
+    console.error(`yt-dlp not found at: ${ytdlpPath}`);
+    return res.status(500).json({
+      error: 'Internal server error - yt-dlp missing',
+      details: `Could not find yt-dlp at ${ytdlpPath}`
     });
-
-    // Set response headers for download
-    res.header('Content-Disposition', 'attachment; filename="video.mp4"');
-    res.header('Content-Type', 'video/mp4');
-    childProcess.stdout.pipe(res);
-
-    // Process progress updates
-    childProcess.stderr.on('data', (data) => {
-      const output = data.toString().trim();
-      if (output.startsWith('[download]')) {
-        console.log(output);
-        // Send progress to all connected clients
-        if (activeDownloads.has(downloadId)) {
-          for (const clientRes of activeDownloads.get(downloadId)) {
-            clientRes.write(`data: ${JSON.stringify({
-              type: 'progress',
-              data: output
-            })}\n\n`);
-          }
-        }
-      }
-    });
-
-    // Handle process completion
-    childProcess.on('close', (code) => {
-      if (activeDownloads.has(downloadId)) {
-        for (const clientRes of activeDownloads.get(downloadId)) {
-          clientRes.write(`data: ${JSON.stringify({
-            type: 'complete',
-            code: code
-          })}\n\n`);
-          clientRes.end();
-        }
-        activeDownloads.delete(downloadId);
-      }
-    });
-
-    // Handle errors
-    childProcess.on('error', (error) => {
-      if (activeDownloads.has(downloadId)) {
-        for (const clientRes of activeDownloads.get(downloadId)) {
-          clientRes.write(`data: ${JSON.stringify({
-            type: 'error',
-            error: error.message
-          })}\n\n`);
-          clientRes.end();
-        }
-        activeDownloads.delete(downloadId);
-      }
-    });
-
-  } catch (error) {
-    console.error('Download error:', error);
-    res.status(500).json({ error: 'Download failed', details: error.message });
   }
+
+  // Build robust download command
+  const args = [
+    url,
+    '-f', itag,
+    '--no-warnings',
+    '--newline',
+    '--force-ipv4',
+    '--socket-timeout', '30',
+    '--retries', '5',
+    '--fragment-retries', '5',
+    '--throttled-rate', '1M',
+    '--add-header', 'User-Agent:"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"',
+    '-o', '-'
+  ];
+
+
+
+  // Add cookies if available
+  const cookiesPath = path.join(__dirname, 'cookies.txt');
+  if (fs.existsSync(cookiesPath)) {
+    args.push('--cookies', cookiesPath);
+  }
+
+  console.log('Executing yt-dlp with args:', args); // Debug logging
+
+  const childProcess = spawn(ytdlpPath, args, {
+    stdio: ['ignore', 'pipe', 'pipe'],
+    shell: true,
+    windowsHide: true
+  });
+
+  let hasData = false;
+  let downloadFailed = false;
+
+  res.header('Content-Disposition', 'attachment; filename="video.mp4"');
+  res.header('Content-Type', 'video/mp4');
+
+  // Handle data stream
+  childProcess.stdout.on('data', (chunk) => {
+    hasData = true;
+    res.write(chunk);
+  });
+
+  childProcess.stdout.on('end', () => {
+    if (!hasData && !downloadFailed) {
+      console.error('No data received from yt-dlp');
+      if (!res.headersSent) {
+        res.status(500).json({ error: 'No video data received' });
+      }
+    } else if (!downloadFailed) {
+      res.end();
+    }
+  });
+
+  // Handle errors
+  childProcess.stderr.on('data', (data) => {
+    const output = data.toString().trim();
+    console.error('yt-dlp stderr:', output);
+
+    if (output.includes('Le chemin d\'accès spécifié est introuvable')) {
+      downloadFailed = true;
+      if (!res.headersSent) {
+        res.status(500).json({
+          error: 'Internal server error - path not found',
+          details: 'yt-dlp executable path is incorrect'
+        });
+      }
+      childProcess.kill();
+    } else if (output.includes('ERROR')) {
+      downloadFailed = true;
+      if (!res.headersSent) {
+        res.status(500).json({ error: output });
+      }
+    }
+  });
+
+  childProcess.on('error', (error) => {
+    console.error('Process error:', error);
+    downloadFailed = true;
+    if (!res.headersSent) {
+      res.status(500).json({
+        error: 'Download failed',
+        details: error.message
+      });
+    }
+  });
+
+  childProcess.on('close', (code) => {
+    if (code !== 0 && !downloadFailed && !res.headersSent) {
+      res.status(500).json({
+        error: `Process exited with code ${code}`,
+        details: 'Unknown error occurred'
+      });
+    }
+  });
 });
 
 app.get('/download/audio', async (req, res) => {
@@ -410,7 +439,6 @@ app.get('/download/audio', async (req, res) => {
       throw new Error(`yt-dlp binary not found at ${ytdlpPath}`);
     }
 
-    // Build the command arguments in correct order
     const args = [
       url,
       '--no-warnings',
@@ -422,34 +450,39 @@ app.get('/download/audio', async (req, res) => {
       '-o', '-'
     ];
 
-    // Create the download process
     childProcess = spawn(ytdlpPath, args, {
       stdio: ['ignore', 'pipe', 'pipe'],
       shell: true,
       windowsHide: true
     });
 
-    // Set response headers for audio
+    // Track if we got any data
+    let hasData = false;
+
+    // Set headers
     res.header('Content-Disposition', 'attachment; filename="audio.mp3"');
     res.header('Content-Type', 'audio/mpeg');
 
-    // Pipe the download stream to response
-    childProcess.stdout.pipe(res);
+    // Pipe stdout to response
+    childProcess.stdout.on('data', (chunk) => {
+      hasData = true;
+      res.write(chunk); // Manually write chunks instead of .pipe()
+    });
 
-    // Error handling
+    childProcess.stdout.on('end', () => {
+      if (!hasData) {
+        throw new Error('No audio data received from yt-dlp');
+      }
+      res.end();
+    });
+
     childProcess.stderr.on('data', (data) => {
       const output = data.toString().trim();
-      if (output.startsWith('[download]')) {
-        console.log(output);
-        // Send progress to all connected clients
-        if (activeDownloads.has(downloadId)) {
-          for (const clientRes of activeDownloads.get(downloadId)) {
-            clientRes.write(`data: ${JSON.stringify({
-              type: 'progress',
-              data: output
-            })}\n\n`);
-          }
-        }
+      console.error('yt-dlp stderr:', output);
+
+      if (output.includes('ERROR') && !res.headersSent) {
+        res.status(500).json({ error: output });
+        childProcess.kill();
       }
     });
 
@@ -458,33 +491,11 @@ app.get('/download/audio', async (req, res) => {
       if (!res.headersSent) {
         res.status(500).json({ error: 'Download failed', details: error.message });
       }
-
-      if (activeDownloads.has(downloadId)) {
-        for (const clientRes of activeDownloads.get(downloadId)) {
-          clientRes.write(`data: ${JSON.stringify({
-            type: 'error',
-            error: error.message
-          })}\n\n`);
-          clientRes.end();
-        }
-        activeDownloads.delete(downloadId);
-      }
     });
 
     childProcess.on('close', (code) => {
       if (code !== 0 && !res.headersSent) {
         res.status(500).json({ error: `Process exited with code ${code}` });
-      }
-
-      if (activeDownloads.has(downloadId)) {
-        for (const clientRes of activeDownloads.get(downloadId)) {
-          clientRes.write(`data: ${JSON.stringify({
-            type: 'complete',
-            code: code
-          })}\n\n`);
-          clientRes.end();
-        }
-        activeDownloads.delete(downloadId);
       }
     });
 
