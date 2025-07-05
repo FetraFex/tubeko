@@ -376,7 +376,19 @@ app.get('/download', async (req, res) => {
   // Handle errors
   childProcess.stderr.on('data', (data) => {
     const output = data.toString().trim();
-    console.error('yt-dlp stderr:', output);
+
+    if (output.startsWith('[download]')) {
+      console.log(output);
+      // Send progress to all connected clients
+      if (activeDownloads.has(downloadId)) {
+        for (const clientRes of activeDownloads.get(downloadId)) {
+          clientRes.write(`data: ${JSON.stringify({
+            type: 'progress',
+            data: output
+          })}\n\n`);
+        }
+      }
+    }
 
     if (output.includes('Le chemin d\'accès spécifié est introuvable')) {
       downloadFailed = true;
