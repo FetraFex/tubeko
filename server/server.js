@@ -480,6 +480,19 @@ app.get('/download/audio', async (req, res) => {
       const output = data.toString().trim();
       console.error('yt-dlp stderr:', output);
 
+      if (output.startsWith('[download]')) {
+        console.log(output);
+        // Send progress to all connected clients
+        if (activeDownloads.has(downloadId)) {
+          for (const clientRes of activeDownloads.get(downloadId)) {
+            clientRes.write(`data: ${JSON.stringify({
+              type: 'progress',
+              data: output
+            })}\n\n`);
+          }
+        }
+      }
+
       if (output.includes('ERROR') && !res.headersSent) {
         res.status(500).json({ error: output });
         childProcess.kill();
@@ -491,11 +504,33 @@ app.get('/download/audio', async (req, res) => {
       if (!res.headersSent) {
         res.status(500).json({ error: 'Download failed', details: error.message });
       }
+
+      if (activeDownloads.has(downloadId)) {
+        for (const clientRes of activeDownloads.get(downloadId)) {
+          clientRes.write(`data: ${JSON.stringify({
+            type: 'error',
+            error: error.message
+          })}\n\n`);
+          clientRes.end();
+        }
+        activeDownloads.delete(downloadId);
+      }
     });
 
     childProcess.on('close', (code) => {
       if (code !== 0 && !res.headersSent) {
         res.status(500).json({ error: `Process exited with code ${code}` });
+      }
+
+      if (activeDownloads.has(downloadId)) {
+        for (const clientRes of activeDownloads.get(downloadId)) {
+          clientRes.write(`data: ${JSON.stringify({
+            type: 'complete',
+            code: code
+          })}\n\n`);
+          clientRes.end();
+        }
+        activeDownloads.delete(downloadId);
       }
     });
 
