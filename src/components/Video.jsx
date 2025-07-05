@@ -36,7 +36,7 @@ const Video = forwardRef(({ title, thumbnail, videoId, onComplete, onQueueAfter 
                 hasAudioOnly = data.formats.some(format => format.type === 'audio only');
             } while (!hasAudioOnly)
 
-            let preferredVideoFormat = data.formats.find(format => format.quality === "720p");
+            let preferredVideoFormat = data.formats.find(format => format.quality === "720p" && format.itag == "136");
             let preferredAudioFormat = data.formats.find(format => {
                 if (format.type === "audio only") {
                     const qualityValue = parseInt(format.quality.split('.')[0]);
@@ -79,6 +79,9 @@ const Video = forwardRef(({ title, thumbnail, videoId, onComplete, onQueueAfter 
 
             console.log("Selected video format:", preferredVideoFormat);
             console.log("Selected audio format:", preferredAudioFormat);
+
+
+            // return
 
             // Rest of your download code...
             // Now you can safely use preferredVideoFormat.itag and preferredAudioFormat.itag
