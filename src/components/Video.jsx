@@ -179,7 +179,7 @@ const Video = forwardRef(({ title, thumbnail, videoId, onComplete, onQueueAfter 
             console.log("blob video", audioBlob);
 
             setProgressText("Merging...")
-            
+
             const formData = new FormData();
             formData.append('video', videoBlob, 'video.mp4');
             formData.append('audio', audioBlob, 'audio.mp3');
@@ -272,6 +272,7 @@ const Video = forwardRef(({ title, thumbnail, videoId, onComplete, onQueueAfter 
             });
 
             onComplete()
+
         }
     };
 
