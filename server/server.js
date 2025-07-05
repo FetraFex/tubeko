@@ -43,13 +43,9 @@ const runYtDlpCommand = (args, options = {}) => {
         '--force-ipv4',
         '--retries', '5',
         '--fragment-retries', '5',
-        '--throttled-rate', '500K',
         '--socket-timeout', '15',
-
-        // ✅ Correct header argument usage (2 separate elements)
         '--add-header', 'User-Agent:Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36',
         '--add-header', 'Accept-Language:en-US,en;q=0.9',
-
         '--dump-json',
         '--no-warnings'
       ];
@@ -188,7 +184,6 @@ app.get('/videoInfo', async (req, res) => {
       '--no-check-certificates',
       '--retries', '5',
       '--fragment-retries', '5',
-      '--throttled-rate', '500K',
       '--socket-timeout', '15',
       '--add-header', 'User-Agent:"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"',
       '--add-header', 'Accept-Language:"en-US,en;q=0.9"',
@@ -478,7 +473,6 @@ app.get('/download/audio', async (req, res) => {
 
     childProcess.stderr.on('data', (data) => {
       const output = data.toString().trim();
-      console.error('yt-dlp stderr:', output);
 
       if (output.startsWith('[download]')) {
         console.log(output);
