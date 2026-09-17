@@ -15,6 +15,7 @@
     "@ffmpeg-installer/ffmpeg": "^1.1.0",
     "axios": "^1.9.0",
     "cors": "^2.8.5",
+    "dotenv": "^17.4.2",
     "express": "^4.21.2",
     "express-fileupload": "^1.5.1",
     "ffmpeg": "^0.0.4",

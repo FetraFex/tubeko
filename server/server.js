@@ -1,3 +1,6 @@
+// Load environment variables from .env before anything reads process.env.
+require('dotenv').config({ quiet: true })
+
 const express = require("express")
 const cors = require('cors')
 const axios = require('axios')
@@ -14,7 +17,7 @@ const fileUpload = require('express-fileupload');
 const activeDownloads = new Map(); // Track active downloads
 
 const app = express()
-const PORT = 3000
+const PORT = process.env.PORT || 3000
 
 app.use(cors({ origin: ['http://localhost:5173', 'http://localhost:5174'] }));
 app.use(fileUpload());
@@ -22,8 +25,23 @@ ffmpeg.setFfmpegPath(ffmpegPath);
 app.use(express.json());
 
 // Setting up API Key and the BASE_URL
-const API_KEY = "REDACTED_YOUTUBE_API_KEY"
+// The key lives in server/.env (gitignored); see server/.env.example.
+const API_KEY = process.env.YOUTUBE_API_KEY
 const BASE_URL = "https://www.googleapis.com/youtube/v3"
+
+if (!API_KEY) {
+  console.warn(
+    '[warn] YOUTUBE_API_KEY is not set. Copy server/.env.example to server/.env ' +
+    'and add a YouTube Data API v3 key; /api/playlist and /api/video will fail without it.'
+  )
+}
+
+// A playlist id is an opaque token of letters, digits, '-' and '_'. Validating it
+// up front turns junk input into a clear 400 instead of a confusing API error.
+const PLAYLIST_ID_PATTERN = /^[A-Za-z0-9_-]{10,}$/;
+// 50 items per page * 40 pages = up to 2000 videos, a safety valve against
+// runaway pagination on very large or malformed playlists.
+const MAX_PLAYLIST_PAGES = 40;
 
 // Helper function to safely run yt-dlp
 const runYtDlpCommand = (args, options = {}) => {
@@ -127,10 +145,27 @@ app.get('/download/progress/:id', (req, res) => {
 
 app.get('/api/playlist/:playlistId', async (req, res) => {
   const { playlistId } = req.params;
-  let { pageToken } = req.query;
+  let nextPageToken = req.query.pageToken || undefined;
 
-  let videos = [];
-  let nextPageToken = pageToken || '';
+  if (!API_KEY) {
+    return res.status(503).json({
+      error: 'YouTube API key is not configured on the server.',
+      videos: [],
+      totalVideos: 0,
+    });
+  }
+
+  if (!PLAYLIST_ID_PATTERN.test(playlistId)) {
+    return res.status(400).json({
+      error: 'Invalid playlist ID',
+      details: `"${playlistId}" is not a valid YouTube playlist ID.`,
+      videos: [],
+      totalVideos: 0,
+    });
+  }
+
+  const videos = [];
+  let pages = 0;
 
   try {
     do {
@@ -144,33 +179,69 @@ app.get('/api/playlist/:playlistId', async (req, res) => {
         },
       });
 
-      // Add fetched videos to the array
-      videos.push(
-        ...response.data.items.map((item) => ({
-          title: item.snippet.title,
-          videoId: item.snippet.resourceId.videoId,
-          thumbnail: item.snippet.thumbnails.medium.url,
-        }))
-      );
+      for (const item of response.data.items || []) {
+        const snippet = item.snippet || {};
+        const videoId = snippet.resourceId?.videoId;
+
+        // Playlists accumulate deleted/private videos over time. The API still
+        // lists them, but they have no usable id/thumbnail, cannot be downloaded,
+        // and (previously) made the whole request fail when thumbnails was absent.
+        if (!videoId) continue;
+
+        videos.push({
+          title: snippet.title || 'Untitled',
+          videoId,
+          thumbnail:
+            snippet.thumbnails?.medium?.url ||
+            snippet.thumbnails?.default?.url ||
+            `https://i.ytimg.com/vi/${videoId}/mqdefault.jpg`,
+        });
+      }
 
       // Update nextPageToken for the next request
-      nextPageToken = response.data.nextPageToken || null;
-
-    } while (nextPageToken);
+      nextPageToken = response.data.nextPageToken || undefined;
+      pages += 1;
+    } while (nextPageToken && pages < MAX_PLAYLIST_PAGES);
 
     // Send the combined list of videos as the response
     res.json({
       videos,
       totalVideos: videos.length,
+      ...(nextPageToken ? { nextPageToken } : {}),
     });
   } catch (error) {
-    console.error('Error fetching playlist:', error);
-    res.status(500).send('Internal Server Error');
+    // Surface what YouTube actually said instead of an opaque 500.
+    const apiError = error.response?.data?.error;
+    const status = error.response?.status;
+    const reason = apiError?.errors?.[0]?.reason;
+    let message = apiError?.message || error.message || 'Failed to fetch playlist';
+
+    if (status === 404 || reason === 'playlistNotFound') {
+      message = 'Playlist not found. It may have been deleted or made private.';
+    } else if (status === 403) {
+      message =
+        'YouTube denied the request. The API key quota may be exhausted, or the playlist is private.';
+    } else if (status === 400) {
+      message = 'This playlist is invalid or no longer available.';
+    }
+
+    console.error(`Error fetching playlist ${playlistId}:`, apiError || error.message);
+
+    res.status(status === 403 ? 403 : status === 404 ? 404 : 502).json({
+      error: message,
+      reason: reason || null,
+      videos: [],
+      totalVideos: 0,
+    });
   }
 });
 
 app.get('/api/video/:videoId', async (req, res) => {
   const { videoId } = req.params;
+
+  if (!API_KEY) {
+    return res.status(503).json({ error: 'YouTube API key is not configured on the server.' });
+  }
 
   try {
     const response = await axios.get(`${BASE_URL}/videos`, {
@@ -197,8 +268,12 @@ app.get('/api/video/:videoId', async (req, res) => {
       res.status(404).json({ error: "Video not found" });
     }
   } catch (error) {
-    console.error('Error fetching video:', error);
-    res.status(500).send('Internal Server Error');
+    const apiError = error.response?.data?.error;
+    console.error('Error fetching video:', apiError || error.message);
+    res.status(error.response?.status || 502).json({
+      error: apiError?.message || 'Failed to fetch video',
+      reason: apiError?.errors?.[0]?.reason || null,
+    });
   }
 });
 
