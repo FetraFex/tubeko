@@ -169,6 +169,39 @@ app.get('/api/playlist/:playlistId', async (req, res) => {
   }
 });
 
+app.get('/api/video/:videoId', async (req, res) => {
+  const { videoId } = req.params;
+
+  try {
+    const response = await axios.get(`${BASE_URL}/videos`, {
+      params: {
+        part: 'snippet',
+        id: videoId,
+        key: API_KEY,
+      },
+    });
+
+    if (response.data.items && response.data.items.length > 0) {
+      const item = response.data.items[0];
+      const thumbnail = item.snippet.thumbnails.medium ? item.snippet.thumbnails.medium.url : (item.snippet.thumbnails.default ? item.snippet.thumbnails.default.url : '');
+      
+      res.json({
+        videos: [{
+          title: item.snippet.title,
+          videoId: item.id,
+          thumbnail: thumbnail,
+        }],
+        totalVideos: 1,
+      });
+    } else {
+      res.status(404).json({ error: "Video not found" });
+    }
+  } catch (error) {
+    console.error('Error fetching video:', error);
+    res.status(500).send('Internal Server Error');
+  }
+});
+
 /** Get a video information */
 app.get('/videoInfo', async (req, res) => {
   try {
