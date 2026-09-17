@@ -26,6 +26,7 @@ const Home = () => {
     const [inputUrl, setInputUrl] = useState("");
     const [isLoading, setIsLoading] = useState(false);
     const [videos, setVideos] = useState([])
+    const [errorMessage, setErrorMessage] = useState("")
 
       const { language } = useLanguage()
 
@@ -85,40 +86,68 @@ const Home = () => {
         }
     };
 
+    // Pull the playlist/video id out of whatever the user pasted. Handles full
+    // URLs, URLs without a protocol, youtu.be links and bare ids.
+    const parseYouTubeInput = (rawValue) => {
+        const value = (rawValue || "").trim();
+        if (!value) return {};
+
+        const looksLikeUrl =
+            /^https?:\/\//i.test(value) ||
+            /^(www\.|m\.)?(youtube\.com|youtu\.be)\//i.test(value);
+
+        if (looksLikeUrl) {
+            try {
+                const urlObj = new URL(/^https?:\/\//i.test(value) ? value : `https://${value}`);
+                const listId = urlObj.searchParams.get("list");
+                const videoId = urlObj.searchParams.get("v");
+
+                if (listId) return { listId, videoId };
+                if (videoId) return { videoId };
+                if (urlObj.hostname === "youtu.be" && urlObj.pathname.length > 1) {
+                    return { videoId: urlObj.pathname.slice(1) };
+                }
+
+                // Playlist pages keep the id in the query string we already read.
+                return {};
+            } catch (e) {
+                console.log("Could not parse URL, treating input as an id.");
+            }
+        }
+
+        // Fallback for bare ids: video ids are 11 chars, playlist ids are longer.
+        if (/^[A-Za-z0-9_-]{11}$/.test(value)) return { videoId: value };
+        return { listId: value };
+    };
+
     const handleFetchVideos = async () => {
         if (!inputUrl) return;
         setIsLoading(true);
         setVideos([]);
-        
-        try {
-            let listId = null;
-            let videoId = null;
+        setErrorMessage("");
 
-            try {
-                const urlObj = new URL(inputUrl);
-                listId = urlObj.searchParams.get("list");
-                videoId = urlObj.searchParams.get("v");
-                if (!videoId && urlObj.hostname === "youtu.be") {
-                    videoId = urlObj.pathname.slice(1);
-                }
-            } catch (e) {
-                // Fallback if not a full URL
-                if (inputUrl.length === 11) videoId = inputUrl;
-                else listId = inputUrl;
-            }
+        try {
+            const { listId, videoId } = parseYouTubeInput(inputUrl);
 
             if (listId) {
                 const response = await axios.get(`http://localhost:3000/api/playlist/${listId}`);
                 console.log("Next Page token: ", response.data.nextPageToken);
                 setVideos(response.data.videos || []);
+                if (!response.data.videos?.length) {
+                    setErrorMessage("This playlist has no downloadable videos.");
+                }
             } else if (videoId) {
                 const response = await axios.get(`http://localhost:3000/api/video/${videoId}`);
                 setVideos(response.data.videos || []);
             } else {
-                console.log("Could not parse YouTube URL.");
+                setErrorMessage("Could not parse a video or playlist from that link.");
             }
         } catch (error) {
             console.log("Error fetching videos: ", error.message);
+            setErrorMessage(
+                error.response?.data?.error ||
+                "Could not reach the server. Is it running on port 3000?"
+            );
         } finally {
             setIsLoading(false);
         }
@@ -139,9 +168,9 @@ const Home = () => {
                     xmlns="http://www.w3.org/2000/svg"
                 >
                     <defs>
-                        <radialGradient id="radialGradient" cx="50%" cy="50%" r="50%">
-                            <stop offset="0%" stopColor="#733B3B" />
-                            <stop offset="100%" stopColor="#4A202077" />
+                        <radialGradient id="blob-gradient-a" cx="50%" cy="50%" r="50%">
+                            <stop offset="0%" stopColor="#0e5f8a" />
+                            <stop offset="100%" stopColor="#0b3d5c77" />
                         </radialGradient>
                     </defs>
                     <motion.path
@@ -162,7 +191,7 @@ const Home = () => {
                             repeatType: "mirror" // Reverse back and forth
                         }}
                         stroke="none"
-                        fill="url(#radialGradient)"
+                        fill="url(#blob-gradient-a)"
                         strokeWidth="2"
                     />
                 </svg>
@@ -173,9 +202,9 @@ const Home = () => {
                     xmlns="http://www.w3.org/2000/svg"
                 >
                     <defs>
-                        <radialGradient id="radialGradient" cx="50%" cy="50%" r="50%">
-                            <stop offset="0%" stopColor="lightblue" />
-                            <stop offset="100%" stopColor="blue" />
+                        <radialGradient id="blob-gradient-b" cx="50%" cy="50%" r="50%">
+                            <stop offset="0%" stopColor="#7fe9ff" />
+                            <stop offset="100%" stopColor="#0a84ff" />
                         </radialGradient>
                     </defs>
                     <motion.path
@@ -196,7 +225,7 @@ const Home = () => {
                             repeatType: "mirror" // Reverse back and forth
                         }}
                         stroke="none"
-                        fill="url(#radialGradient)"
+                        fill="url(#blob-gradient-b)"
                         strokeWidth="2"
                     />
                 </svg>
@@ -207,9 +236,9 @@ const Home = () => {
                     xmlns="http://www.w3.org/2000/svg"
                 >
                     <defs>
-                        <radialGradient id="radialGradient" cx="50%" cy="50%" r="50%">
-                            <stop offset="0%" stopColor="lightblue" />
-                            <stop offset="100%" stopColor="blue" />
+                        <radialGradient id="blob-gradient-c" cx="50%" cy="50%" r="50%">
+                            <stop offset="0%" stopColor="#7fe9ff" />
+                            <stop offset="100%" stopColor="#0a84ff" />
                         </radialGradient>
                     </defs>
                     <motion.path
@@ -231,13 +260,14 @@ const Home = () => {
                             repeatType: "mirror" // Reverse back and forth
                         }}
                         stroke="none"
-                        fill="url(#radialGradient)"
+                        fill="url(#blob-gradient-c)"
                         strokeWidth="2"
                     />
                 </svg>
+                <div className='absolute inset-0 z-30 pointer-events-none hero-scrim'></div>
                 <div className='absolute backdrop-blur-4xl top-0 z-40 left-0 w-full h-full'></div>
 
-                <p className='text-white z-50'>{dictionary[language].stream[0]} <span className='px-2 py-1 bg-white bg-opacity-20 rounded-full'><FontAwesomeIcon color='#ff003c' icon={faDownload} /> {dictionary[language].stream[1]}</span></p>
+                <p className='text-white z-50'>{dictionary[language].stream[0]} <span className='px-2 py-1 bg-white bg-opacity-20 rounded-full'><FontAwesomeIcon color='#00d4ff' icon={faDownload} /> {dictionary[language].stream[1]}</span></p>
                 <div className='text-transparent z-50 w-full justify-center items-center flex flex-col space-y-6 px-2'>
                     <h1 className='text-3xl xl:text-6xl lg:text-4xl font-bold gradient-text'>{dictionary[language].headline[0]}<br />{dictionary[language].headline[1]}</h1>
                     <div className='flex bg-white xl:w-7/12 w-full sm:w-10/12 lg:w-8/12 rounded-full'>
@@ -253,6 +283,11 @@ const Home = () => {
                     <div className="h-4 flex items-center">
                         {isLoading && <BeatLoader color="#fff" size={10} />}
                     </div>
+                    {!isLoading && errorMessage && (
+                        <p className="z-50 max-w-2xl text-cyan-200 bg-black/40 rounded-lg px-4 py-2">
+                            {errorMessage}
+                        </p>
+                    )}
                     {videos.length && (<div>
                         <button onClick={startDownload} className="rounded-lg hover:bg-green-300 transition-all duration-300 bg-green-400 px-8 py-2 text-black font-medium text-lg">Start Download</button>
                     </div>)}
@@ -268,7 +303,7 @@ const Home = () => {
                         </div>
                     </div>
                     <div className='flex items-center space-x-1 text-white'>
-                        <p><span className="font-medium">{ isMobileOrTablet?  dictionary[language].swipe : dictionary[language].scroll }</span> {dictionary[language].explore }</p><FontAwesomeIcon color='#ff003c' icon={faArrowDown} />
+                        <p><span className="font-medium">{ isMobileOrTablet?  dictionary[language].swipe : dictionary[language].scroll }</span> {dictionary[language].explore }</p><FontAwesomeIcon color='#00d4ff' icon={faArrowDown} />
                     </div>
                 </div>
                 {sparkles.map((_, index) => (
@@ -282,7 +317,7 @@ const Home = () => {
             <div className="bg-custom-gradient w-full flex justify-center">
                 <div className='lg:w-1/2 max-h-[85vh] overflow-y-auto flex custom-scrollbar flex-col gap-y-8 p-10'>
                     {videos.length === 0 ? (
-                        <p>No videos found.</p>
+                        <p className="text-white">{errorMessage || "No videos found."}</p>
                     ) : (
                         videos.map((video, index) => (
                             <Video
