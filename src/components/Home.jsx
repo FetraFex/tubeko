@@ -111,8 +111,8 @@ const Home = () => {
                 >
                     <defs>
                         <radialGradient id="radialGradient" cx="50%" cy="50%" r="50%">
-                            <stop offset="0%" stopColor="#646F56" />
-                            <stop offset="100%" stopColor="#314A3077" />
+                            <stop offset="0%" stopColor="#3B6373" />
+                            <stop offset="100%" stopColor="#20394A77" />
                         </radialGradient>
                     </defs>
                     <motion.path
@@ -208,7 +208,7 @@ const Home = () => {
                 </svg>
                 <div className='absolute backdrop-blur-4xl top-0 z-40 left-0 w-full h-full'></div>
 
-                <p className='text-white z-50'>{dictionary[language].stream[0]} <span className='px-2 py-1 bg-white bg-opacity-20 rounded-full'><FontAwesomeIcon color='#4ade80' icon={faDownload} /> {dictionary[language].stream[1]}</span></p>
+                <p className='text-white z-50'>{dictionary[language].stream[0]} <span className='px-2 py-1 bg-white bg-opacity-20 rounded-full'><FontAwesomeIcon color='#00d8ff' icon={faDownload} /> {dictionary[language].stream[1]}</span></p>
                 <div className='text-transparent z-50 w-full justify-center items-center flex flex-col space-y-6 px-2'>
                     <h1 className='text-3xl xl:text-6xl lg:text-4xl font-bold gradient-text'>{dictionary[language].headline[0]}<br />{dictionary[language].headline[1]}</h1>
                     <div className='flex bg-white xl:w-7/12 w-full sm:w-10/12 lg:w-8/12 rounded-full'>
@@ -239,7 +239,7 @@ const Home = () => {
                         </div>
                     </div>
                     <div className='flex items-center space-x-1 text-white'>
-                        <p><span className="font-medium">{ isMobileOrTablet?  dictionary[language].swipe : dictionary[language].scroll }</span> {dictionary[language].explore }</p><FontAwesomeIcon color='#4ade80' icon={faArrowDown} />
+                        <p><span className="font-medium">{ isMobileOrTablet?  dictionary[language].swipe : dictionary[language].scroll }</span> {dictionary[language].explore }</p><FontAwesomeIcon color='#00d8ff' icon={faArrowDown} />
                     </div>
                 </div>
                 {sparkles.map((_, index) => (
