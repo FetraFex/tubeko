@@ -8,7 +8,7 @@ const Footer = () => {
   return (
     <div className='bg-custom-gradient pt-44 h-[80vh] w-full'>
       <div
-        className='bg-[#0F1112] h-full flex flex-col xl:flex-row items-center justify-evenly rounded-t-[2000px] shadow-[0px_0px_70px_10px] shadow-[#00d8ff] '>
+        className='bg-[#0F1112] h-full flex flex-col xl:flex-row items-center justify-evenly rounded-t-[2000px] shadow-[0px_0px_70px_10px] shadow-[#ff003c] '>
         <div className=''>
           <h2 className='text-2xl font-bold text-white'>Tubeko</h2>
         </div>

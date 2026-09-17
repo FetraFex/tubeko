@@ -13,7 +13,7 @@ export default {
         sinera: ["Sinera"]
       },
       backgroundImage: {
-        'custom-gradient': 'linear-gradient(90deg, rgba(18,18,18,1) 9%, rgba(16,20,24,1) 22%, rgba(20,30,37,1) 33%, rgba(28,42,56,1) 63%, rgba(15,17,19,1) 100%)'
+        'custom-gradient': 'linear-gradient(90deg, rgba(18,18,18,1) 9%, rgba(24,16,16,1) 22%, rgba(37,20,20,1) 33%, rgba(56,28,28,1) 63%, rgba(19,15,15,1) 100%)'
       },
       backdropBlur: {
         '3xl' : '40px',

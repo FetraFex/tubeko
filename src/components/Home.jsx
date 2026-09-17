@@ -23,7 +23,8 @@ const Home = () => {
     const [downloadQueue, setDownloadQueue] = useState([]);
     const [activeDownload, setActiveDownload] = useState(null);
 
-    const [playlistId, setPlaylistId] = useState("");
+    const [inputUrl, setInputUrl] = useState("");
+    const [isLoading, setIsLoading] = useState(false);
     const [videos, setVideos] = useState([])
 
       const { language } = useLanguage()
@@ -85,13 +86,41 @@ const Home = () => {
     };
 
     const handleFetchVideos = async () => {
+        if (!inputUrl) return;
+        setIsLoading(true);
+        setVideos([]);
+        
         try {
-            const response = await axios.get(`http://localhost:3000/api/playlist/${playlistId}`)
-            console.log("Next Page token: ", response.data.nextPageToken);
+            let listId = null;
+            let videoId = null;
 
-            setVideos(response.data.videos)
+            try {
+                const urlObj = new URL(inputUrl);
+                listId = urlObj.searchParams.get("list");
+                videoId = urlObj.searchParams.get("v");
+                if (!videoId && urlObj.hostname === "youtu.be") {
+                    videoId = urlObj.pathname.slice(1);
+                }
+            } catch (e) {
+                // Fallback if not a full URL
+                if (inputUrl.length === 11) videoId = inputUrl;
+                else listId = inputUrl;
+            }
+
+            if (listId) {
+                const response = await axios.get(`http://localhost:3000/api/playlist/${listId}`);
+                console.log("Next Page token: ", response.data.nextPageToken);
+                setVideos(response.data.videos || []);
+            } else if (videoId) {
+                const response = await axios.get(`http://localhost:3000/api/video/${videoId}`);
+                setVideos(response.data.videos || []);
+            } else {
+                console.log("Could not parse YouTube URL.");
+            }
         } catch (error) {
             console.log("Error fetching videos: ", error.message);
+        } finally {
+            setIsLoading(false);
         }
     }
 
@@ -111,8 +140,8 @@ const Home = () => {
                 >
                     <defs>
                         <radialGradient id="radialGradient" cx="50%" cy="50%" r="50%">
-                            <stop offset="0%" stopColor="#3B6373" />
-                            <stop offset="100%" stopColor="#20394A77" />
+                            <stop offset="0%" stopColor="#733B3B" />
+                            <stop offset="100%" stopColor="#4A202077" />
                         </radialGradient>
                     </defs>
                     <motion.path
@@ -208,21 +237,21 @@ const Home = () => {
                 </svg>
                 <div className='absolute backdrop-blur-4xl top-0 z-40 left-0 w-full h-full'></div>
 
-                <p className='text-white z-50'>{dictionary[language].stream[0]} <span className='px-2 py-1 bg-white bg-opacity-20 rounded-full'><FontAwesomeIcon color='#00d8ff' icon={faDownload} /> {dictionary[language].stream[1]}</span></p>
+                <p className='text-white z-50'>{dictionary[language].stream[0]} <span className='px-2 py-1 bg-white bg-opacity-20 rounded-full'><FontAwesomeIcon color='#ff003c' icon={faDownload} /> {dictionary[language].stream[1]}</span></p>
                 <div className='text-transparent z-50 w-full justify-center items-center flex flex-col space-y-6 px-2'>
                     <h1 className='text-3xl xl:text-6xl lg:text-4xl font-bold gradient-text'>{dictionary[language].headline[0]}<br />{dictionary[language].headline[1]}</h1>
                     <div className='flex bg-white xl:w-7/12 w-full sm:w-10/12 lg:w-8/12 rounded-full'>
                         <div className='py-4 w-1/12 rounded-s-full flex justify-center'><FontAwesomeIcon icon={faSearch} color="#000" className='xl:text-2xl text-lg' /></div>
                         <div className='w-10/12'>
-                            <input onChange={(e) => setPlaylistId(e.target.value)} type="text" className='z-50 h-full text-black w-full px-2 xl:px-5 text-sm xl:text-lg' placeholder={`${dictionary[language].placeholder} 😉`} /></div>
+                            <input onChange={(e) => setInputUrl(e.target.value)} type="text" className='z-50 h-full text-black w-full px-2 xl:px-5 text-sm xl:text-lg' placeholder={`${dictionary[language].placeholder} 😉`} /></div>
                         <div className='py-4 w-1/12 rounded-e-full flex justify-center'><FontAwesomeIcon color="#000" icon={faClose} className='text-lg xl:text-2xl' /></div>
                     </div>
                     <div className='flex space-x-4'>
                         <button onClick={handleFetchVideos} className='bg-white text-black hover:scale-105 transition-all duration-200 pl-4 pr-2 py-1 xl:py-2 rounded-xl font-medium flex justify-between items-center space-x-2'><span>{dictionary[language].button.conversion}</span><FontAwesomeIcon className="bg-green-400 p-2 xl:p-3 rounded-xl text-sm xl:text-base" icon={faArrowRight} /></button>
                         <button className='bg-transparent text-white px-4 rounded-xl font-medium border-2'>{dictionary[language].button.quality} <FontAwesomeIcon icon={faChevronDown} /></button>
                     </div>
-                    <div>
-                        <BeatLoader color="#fff" size={10} />
+                    <div className="h-4 flex items-center">
+                        {isLoading && <BeatLoader color="#fff" size={10} />}
                     </div>
                     {videos.length && (<div>
                         <button onClick={startDownload} className="rounded-lg hover:bg-green-300 transition-all duration-300 bg-green-400 px-8 py-2 text-black font-medium text-lg">Start Download</button>
@@ -239,7 +268,7 @@ const Home = () => {
                         </div>
                     </div>
                     <div className='flex items-center space-x-1 text-white'>
-                        <p><span className="font-medium">{ isMobileOrTablet?  dictionary[language].swipe : dictionary[language].scroll }</span> {dictionary[language].explore }</p><FontAwesomeIcon color='#00d8ff' icon={faArrowDown} />
+                        <p><span className="font-medium">{ isMobileOrTablet?  dictionary[language].swipe : dictionary[language].scroll }</span> {dictionary[language].explore }</p><FontAwesomeIcon color='#ff003c' icon={faArrowDown} />
                     </div>
                 </div>
                 {sparkles.map((_, index) => (
