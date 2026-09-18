@@ -264,11 +264,11 @@ const Home = () => {
                         strokeWidth="2"
                     />
                 </svg>
-                <div className='absolute inset-0 z-30 pointer-events-none hero-scrim'></div>
+                <div className='absolute inset-0 z-[45] pointer-events-none hero-scrim'></div>
                 <div className='absolute backdrop-blur-4xl top-0 z-40 left-0 w-full h-full'></div>
 
                 <p className='text-white z-50'>{dictionary[language].stream[0]} <span className='px-2 py-1 bg-white bg-opacity-20 rounded-full'><FontAwesomeIcon color='#00d4ff' icon={faDownload} /> {dictionary[language].stream[1]}</span></p>
-                <div className='text-transparent z-50 w-full justify-center items-center flex flex-col space-y-6 px-2'>
+                <div className='z-50 w-full justify-center items-center flex flex-col space-y-6 px-2'>
                     <h1 className='text-3xl xl:text-6xl lg:text-4xl font-bold gradient-text'>{dictionary[language].headline[0]}<br />{dictionary[language].headline[1]}</h1>
                     <div className='flex bg-white xl:w-7/12 w-full sm:w-10/12 lg:w-8/12 rounded-full'>
                         <div className='py-4 w-1/12 rounded-s-full flex justify-center'><FontAwesomeIcon icon={faSearch} color="#000" className='xl:text-2xl text-lg' /></div>
