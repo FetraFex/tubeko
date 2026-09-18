@@ -283,22 +283,8 @@ app.get('/videoInfo', async (req, res) => {
     const { url } = req.query;
     if (!url) return res.status(400).json({ error: 'URL required' });
 
-    // Properly formatted headers with escaped quotes
-    const info = await runYtDlpCommand([
-      url,
-      '--dump-json',
-      '--no-warnings',
-      '--force-ipv4',
-      '--no-check-certificates',
-      '--retries', '5',
-      '--fragment-retries', '5',
-      '--socket-timeout', '15',
-      '--add-header', 'User-Agent:"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"',
-      '--add-header', 'Accept-Language:"en-US,en;q=0.9"',
-      '--age-limit', '99',
-      // Add cookies if available (uncomment if needed)
-      // '--cookies', 'cookies.txt'
-    ]);
+    // runYtDlpCommand already includes --dump-json, headers, retries, etc.
+    const info = await runYtDlpCommand([url]);
 
     // Validate response structure
     if (!info || !info.formats || !Array.isArray(info.formats)) {
@@ -407,6 +393,130 @@ app.get('/videoInfo', async (req, res) => {
   }
 });
 
+
+/**
+ * Single-pipeline download: fetch video + audio to temp files, merge with
+ * ffmpeg, and stream the merged file back to the client.  Progress is pushed
+ * over the existing SSE /download/progress/:id channel.
+ */
+app.get('/download/full', async (req, res) => {
+  const { url, videoItag, audioItag, id } = req.query;
+  if (!url || !videoItag || !audioItag) {
+    return res.status(400).json({ error: 'url, videoItag, and audioItag are required' });
+  }
+
+  const downloadId = id || Math.random().toString(36).substring(7);
+  const ytdlpPath = path.join(__dirname, process.platform === 'win32' ? 'yt-dlp.exe' : 'yt-dlp');
+  const cookiesPath = path.join(__dirname, 'cookies.txt');
+  const tempDir = path.join(os.tmpdir(), 'yt-full');
+  if (!fs.existsSync(tempDir)) fs.mkdirSync(tempDir, { recursive: true });
+
+  const ts = Date.now();
+  const videoPath = path.join(tempDir, `video_${ts}.mp4`);
+  const audioPath = path.join(tempDir, `audio_${ts}`);
+  const mergedPath = path.join(tempDir, `merged_${ts}.mp4`);
+
+  // Helper: broadcast an SSE message to all clients watching this downloadId
+  const broadcast = (msg) => {
+    if (!activeDownloads.has(downloadId)) return;
+    for (const clientRes of activeDownloads.get(downloadId)) {
+      clientRes.write(`data: ${JSON.stringify(msg)}\n\n`);
+    }
+  };
+
+  // Helper: run a yt-dlp command that writes to a file (not stdout)
+  const runToFile = (extraArgs, filePath) => new Promise((resolve, reject) => {
+    const args = [
+      '--no-check-certificates', '--force-ipv4',
+      '--retries', '5', '--fragment-retries', '5', '--socket-timeout', '15',
+      '--add-header', 'User-Agent:Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36',
+      '--no-warnings', '--newline',
+      ...extraArgs,
+      '-o', filePath
+    ];
+    if (fs.existsSync(cookiesPath)) args.push('--cookies', cookiesPath);
+
+    console.log('Executing yt-dlp:', args.join(' '));
+    const proc = spawn(ytdlpPath, args, { stdio: ['ignore', 'pipe', 'pipe'], shell: false, windowsHide: true });
+
+    proc.stderr.on('data', (d) => {
+      const line = d.toString().trim();
+      if (line.startsWith('[download]')) {
+        console.log(line);
+        broadcast({ type: 'progress', data: line });
+      }
+      if (line.includes('ERROR')) {
+        console.error(line);
+        broadcast({ type: 'error', error: line });
+      }
+    });
+
+    proc.on('error', reject);
+    proc.on('close', (code) => {
+      if (code === 0) resolve();
+      else reject(new Error(`yt-dlp exited with code ${code}`));
+    });
+  });
+
+  // Helper: run ffmpeg to merge two files
+  const merge = (vPath, aPath, outPath) => new Promise((resolve, reject) => {
+    broadcast({ type: 'progress', data: '[merge] Starting ffmpeg merge...' });
+    ffmpeg()
+      .input(vPath)
+      .input(aPath)
+      .outputOptions(['-c:v copy', '-c:a aac', '-movflags +faststart'])
+      .output(outPath)
+      .on('start', (cmd) => console.log('FFmpeg:', cmd))
+      .on('progress', (p) => broadcast({ type: 'progress', data: `[merge] ${p.percent ? p.percent.toFixed(1) + '%' : ''} ${p.timemark || ''}` }))
+      .on('end', () => { console.log('Merge complete'); resolve(); })
+      .on('error', (err) => { console.error('FFmpeg error:', err); reject(err); })
+      .run();
+  });
+
+  // Helper: clean up temp files (best-effort)
+  const cleanup = () => {
+    for (const f of [videoPath, audioPath, mergedPath]) {
+      try { fs.unlinkSync(f); } catch (_) { /* already gone */ }
+    }
+  };
+
+  try {
+    // 1. Download video to temp file
+    broadcast({ type: 'progress', data: '[download] Downloading video stream...' });
+    await runToFile([url, '-f', videoItag], videoPath);
+
+    // 2. Download audio to temp file
+    broadcast({ type: 'progress', data: '[download] Downloading audio stream...' });
+    await runToFile([url, '-f', audioItag], audioPath);
+
+    // 3. Merge with ffmpeg
+    await merge(videoPath, audioPath, mergedPath);
+
+    // 4. Stream the merged file back
+    const stat = fs.statSync(mergedPath);
+    res.setHeader('Content-Type', 'video/mp4');
+    res.setHeader('Content-Length', stat.size);
+    res.setHeader('Content-Disposition', 'attachment; filename="video.mp4"');
+    const readStream = fs.createReadStream(mergedPath);
+    readStream.pipe(res);
+    readStream.on('end', () => {
+      broadcast({ type: 'complete', filename: 'video.mp4' });
+      cleanup();
+    });
+    readStream.on('error', (err) => {
+      console.error('Read stream error:', err);
+      if (!res.headersSent) res.status(500).json({ error: 'Failed to send merged file' });
+      cleanup();
+    });
+  } catch (err) {
+    console.error('/download/full error:', err);
+    broadcast({ type: 'error', error: err.message });
+    if (!res.headersSent) {
+      res.status(500).json({ error: err.message || 'Download failed' });
+    }
+    cleanup();
+  }
+});
 
 // Add this after your /api/playlist/:playlistId route
 app.get('/download', async (req, res) => {
