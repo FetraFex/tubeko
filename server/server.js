@@ -366,6 +366,15 @@ app.get('/videoInfo', async (req, res) => {
               audio: format.acodec || 'none'
             },
             filesize: format.filesize ? `${(format.filesize / (1024 * 1024)).toFixed(2)}MB` : 'N/A',
+            // Raw byte count so a client can tell a complete download from a
+            // truncated one (the string above is display-only). Only the exact
+            // figure is sent: filesize_approx is an estimate, and rejecting a
+            // complete download over an estimate would be worse than useless.
+            filesizeBytes: format.filesize || null,
+            // 'https' is direct media. 'm3u8_native' (HLS) and 'mhtml'
+            // (storyboards) are manifests/thumbnails, not media files - a
+            // browser that treats one as a video file cannot mux it.
+            protocol: format.protocol || 'https',
             url: format.url || null  // Add direct URL if available
           };
         } catch (formatError) {
@@ -625,20 +634,31 @@ app.get('/stream', async (req, res) => {
     },
   });
 
-  // Copy one window to the client, honouring backpressure. Resolves with the
-  // number of bytes actually written.
-  const pipeWindow = (stream) => new Promise((resolve, reject) => {
-    let bytes = 0;
-    stream.on('data', (chunk) => {
-      bytes += chunk.length;
-      if (!res.write(chunk)) {
-        stream.pause();
-        res.once('drain', () => stream.resume());
+  // Read one window into memory before writing it out. Buffering is what makes
+  // the retry below safe: a window that dies half way through can be fetched
+  // again from its start without the client ever seeing duplicate or missing
+  // bytes. Windows are 4MB, so this is bounded.
+  const readWindow = async (start, end) => {
+    let lastError;
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      try {
+        const upstream = await requestWindow(start, end);
+        if (upstream.status !== 200 && upstream.status !== 206) {
+          upstream.data.destroy();
+          throw new Error(`YouTube responded with ${upstream.status}`);
+        }
+        const chunks = [];
+        for await (const chunk of upstream.data) chunks.push(chunk);
+        return { headers: upstream.headers, body: Buffer.concat(chunks) };
+      } catch (error) {
+        // The CDN resets throttled connections (ECONNRESET) and drops slow
+        // ones, so a single bad window used to truncate the whole download.
+        lastError = error;
+        if (attempt < 3) await new Promise((resolve) => setTimeout(resolve, 250 * attempt));
       }
-    });
-    stream.on('end', () => resolve(bytes));
-    stream.on('error', reject);
-  });
+    }
+    throw lastError;
+  };
 
   // A bodyless GET emits 'close' on the request immediately, so watch the
   // response instead to notice the browser going away.
@@ -653,33 +673,35 @@ app.get('/stream', async (req, res) => {
 
     while (!total || offset < total) {
       const end = total ? Math.min(offset + RELAY_WINDOW_BYTES - 1, total - 1) : offset + RELAY_WINDOW_BYTES - 1;
-      const upstream = await requestWindow(offset, end);
-
-      if (upstream.status !== 200 && upstream.status !== 206) {
-        upstream.data.destroy();
-        const message = `YouTube responded with ${upstream.status}`;
-        if (!res.headersSent) return res.status(502).json({ error: message });
-        throw new Error(message);
+      let window;
+      try {
+        window = await readWindow(offset, end);
+      } catch (error) {
+        if (!res.headersSent) {
+          return res.status(502).json({ error: 'Failed to relay stream', details: error.message });
+        }
+        throw error;
       }
-
       if (!total) {
-        const range = upstream.headers['content-range'];
+        const range = window.headers['content-range'];
         // Content-Range looks like "bytes 0-4194303/18642971"; the total after
         // the slash is what lets the browser show a real progress bar.
-        total = Number(range && range.split('/')[1]) || Number(upstream.headers['content-length']) || 0;
+        total = Number(range && range.split('/')[1]) || Number(window.headers['content-length']) || 0;
         res.status(200);
-        res.setHeader('Content-Type', upstream.headers['content-type'] || 'application/octet-stream');
+        res.setHeader('Content-Type', window.headers['content-type'] || 'application/octet-stream');
         res.setHeader('Accept-Ranges', 'bytes');
         if (total) res.setHeader('Content-Length', total);
       }
 
-      const written = await pipeWindow(upstream.data);
-
-      if (clientGone) {
-        upstream.data.destroy();
-        return;
-      }
+      const written = window.body.length;
       if (written === 0) break; // no progress; stop rather than spin
+
+      // Honour backpressure, otherwise a big file buffers server-side.
+      if (!res.write(window.body)) {
+        await new Promise((resolve) => res.once('drain', resolve));
+      }
+
+      if (clientGone) return;
       offset += written;
     }
 
