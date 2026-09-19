@@ -35,12 +35,37 @@ export const getFFmpeg = () => {
   return ffmpegPromise
 }
 
+// ffmpeg.wasm is a single instance with one worker and one in-memory
+// filesystem. Two muxes running at once would overwrite each other's
+// video.mp4/audio.m4a while the other one is still reading them, which is a
+// silent way to corrupt both downloads. Every ffmpeg operation goes through
+// this chain so only one runs at a time.
+let ffmpegChain = Promise.resolve()
+
+const withFFmpeg = (work) => {
+  const run = ffmpegChain.then(work, work)
+  ffmpegChain = run.then(() => {}, () => {})
+  return run
+}
+
+// A core that failed mid-operation can be left in a state where every later
+// operation fails too (that is how one bad video used to poison a whole
+// playlist). Dropping the instance forces the next mux to load a fresh one.
+export const disposeFFmpeg = () => {
+  const pending = ffmpegPromise
+  ffmpegPromise = null
+  if (pending) {
+    pending.then((ffmpeg) => ffmpeg.terminate()).catch(() => {})
+  }
+}
+
 // ffmpeg.wasm keeps every input *and* the output in memory (wasm32 tops out
 // around 2GB), so muxing a very long video in the browser would crash the tab.
 // Beyond this the caller falls back to the server-side pipeline instead.
 export const MAX_BROWSER_BYTES = 400 * 1024 * 1024
 
 export const TOO_LARGE = 'TOO_LARGE'
+export const BAD_MEDIA = 'BAD_MEDIA'
 
 const UNITS = ['B', 'KiB', 'MiB', 'GiB', 'TiB']
 
@@ -66,8 +91,57 @@ const formatEta = (seconds) => {
 export const sanitizeFilename = (name) =>
   (name || 'video').replace(/[\\/:*?"<>|]+/g, '_').trim().slice(0, 120) || 'video'
 
+// The worker serialises anything it throws to a string ("ErrnoError: FS
+// error"), so `error.message` is undefined and the UI ends up showing a
+// pointless "Download failed". Rebuild a usable Error.
+export const normalizeError = (error, fallback = 'Download failed') => {
+  if (error instanceof Error) return error
+  if (typeof error === 'string') {
+    const text = error.trim()
+    if (/ErrnoError: FS error/i.test(text)) {
+      const err = new Error('The video and audio could not be joined together')
+      err.cause = text
+      return err
+    }
+    const err = new Error(text || fallback)
+    err.cause = text
+    return err
+  }
+  return new Error(error?.message || fallback)
+}
+
+// Formats come from yt-dlp verbatim, and its list also contains HLS (.m3u8)
+// manifests whose "media" is really a few KB of text. Writing one of those into
+// ffmpeg as video.mp4 is what produced the opaque "ErrnoError: FS error", so
+// anything that is not plain HTTPS media is skipped.
+export const isDirectMedia = (format) => {
+  if (!format || !format.url) return false
+  if (format.protocol && format.protocol !== 'https') return false
+  if (/\.m3u8(\?|$)/i.test(format.url)) return false
+  return /^https?:\/\//i.test(format.url)
+}
+
+// A direct googlevideo URL returns the whole file only if the request is
+// windowed (unbounded requests get throttled to a crawl), so the server walks
+// it in windows. This checks the assembled result instead of trusting it: a
+// short read or a stray error page would otherwise go straight into ffmpeg and
+// surface as that same meaningless FS error.
+const MEDIA_SIGNATURES = [
+  { name: 'MP4/M4A', offset: 4, bytes: [0x66, 0x74, 0x79, 0x70] }, // "ftyp"
+  { name: 'WebM/MKV', offset: 0, bytes: [0x1a, 0x45, 0xdf, 0xa3] },
+]
+
+export const mediaLooksValid = (bytes) => {
+  if (!bytes || bytes.length < 16) return false
+  return MEDIA_SIGNATURES.some(({ offset, bytes: sig }) =>
+    sig.every((byte, i) => bytes[offset + i] === byte))
+}
+
+const isRetryable = (error) =>
+  error.code !== TOO_LARGE && error.name !== 'AbortError' && !error.aborted
+
 // Stream one format through the server relay, reporting bytes as they arrive.
-const downloadStream = async (cdnUrl, onProgress, signal, maxBytes) => {
+const streamOnce = async (cdnUrl, { onProgress, signal, maxBytes, expectedSize }) => {
   const response = await fetch(`${API}/stream?url=${encodeURIComponent(cdnUrl)}`, { signal })
 
   if (!response.ok || !response.body) {
@@ -111,7 +185,42 @@ const downloadStream = async (cdnUrl, onProgress, signal, maxBytes) => {
     bytes.set(chunk, offset)
     offset += chunk.length
   }
-  return bytes
+
+  // Reject instead of handing ffmpeg something it cannot open.
+  if (total && received !== total) {
+    const error = new Error(`Truncated download: got ${received} of ${total} bytes`)
+    error.code = BAD_MEDIA
+    throw error
+  }
+  // yt-dlp reports the exact byte size; a mismatch means a partial file.
+  if (expectedSize && Math.abs(received - expectedSize) > 1024) {
+    const error = new Error(`Incomplete download: got ${received} of ${expectedSize} bytes`)
+    error.code = BAD_MEDIA
+    throw error
+  }
+  if (!mediaLooksValid(bytes)) {
+    const error = new Error('The server sent something that is not a video or audio file')
+    error.code = BAD_MEDIA
+    throw error
+  }
+
+  return { bytes, received, total }
+}
+
+// One retry is enough to ride out a dropped relay window, and it keeps a
+// playlist moving without doubling every failure.
+const downloadStream = async (cdnUrl, label, options) => {
+  let lastError
+  for (let attempt = 1; attempt <= 2; attempt++) {
+    try {
+      return await streamOnce(cdnUrl, options)
+    } catch (error) {
+      lastError = error
+      if (error.code === TOO_LARGE || !isRetryable(error) || attempt === 2) throw error
+      console.warn(`[download] ${label} attempt ${attempt} failed (${error.message}); retrying`)
+    }
+  }
+  throw lastError
 }
 
 const UPDATE_INTERVAL = 200
@@ -134,31 +243,49 @@ const readout = ({ received, total, startedAt, onProgress }) => {
  * Audio-only download: pulls just the audio stream and saves it as-is. The
  * format is already AAC in an m4a container, so no re-encode is needed.
  */
-export const downloadAudioOnly = async ({ audioUrl, onProgress, maxBytes = MAX_BROWSER_BYTES }) => {
+export const downloadAudioOnly = async ({
+  audioUrl,
+  expectedSize,
+  onProgress,
+  maxBytes = MAX_BROWSER_BYTES,
+}) => {
   const startedAt = performance.now()
   let lastReport = 0
 
-  return downloadStream(audioUrl, ({ received, total }) => {
-    if (!onProgress) return
-    const now = performance.now()
-    if (now - lastReport < UPDATE_INTERVAL) return
-    lastReport = now
-    readout({ received, total, startedAt, onProgress })
-  }, undefined, maxBytes)
+  const { bytes } = await downloadStream(audioUrl, 'audio', {
+    maxBytes,
+    expectedSize,
+    onProgress: onProgress
+      ? ({ received, total }) => {
+        const now = performance.now()
+        if (now - lastReport < UPDATE_INTERVAL) return
+        lastReport = now
+        readout({ received, total, startedAt, onProgress })
+      }
+      : undefined,
+  })
+  return bytes
 }
 
 /**
  * Download the video and audio formats in parallel, reporting combined
  * progress so the UI shows one coherent size/speed/ETA readout.
  */
-export const downloadMedia = async ({ videoUrl, audioUrl, onProgress, maxBytes = MAX_BROWSER_BYTES }) => {
+export const downloadMedia = async ({
+  videoUrl,
+  audioUrl,
+  videoSize,
+  audioSize,
+  onProgress,
+  maxBytes = MAX_BROWSER_BYTES,
+}) => {
   const state = {
     video: { received: 0, total: 0 },
     audio: { received: 0, total: 0 },
   }
   const startedAt = performance.now()
   let lastReport = 0
-  // If the video turns out to be oversized, the audio request is cancelled too.
+  // If one stream is oversized, the other request is cancelled too.
   const controller = new AbortController()
 
   const report = (force = false) => {
@@ -176,26 +303,53 @@ export const downloadMedia = async ({ videoUrl, audioUrl, onProgress, maxBytes =
   }
 
   try {
-    const [videoData, audioData] = await Promise.all([
-      downloadStream(videoUrl, (p) => { state.video = p; report() }, controller.signal, maxBytes),
-      downloadStream(audioUrl, (p) => { state.audio = p; report() }, controller.signal, maxBytes),
+    const [video, audio] = await Promise.all([
+      downloadStream(videoUrl, 'video', {
+        signal: controller.signal,
+        maxBytes,
+        expectedSize: videoSize,
+        onProgress: (p) => { state.video = p; report() },
+      }),
+      downloadStream(audioUrl, 'audio', {
+        signal: controller.signal,
+        maxBytes,
+        expectedSize: audioSize,
+        onProgress: (p) => { state.audio = p; report() },
+      }),
     ])
     report(true)
-    return { videoData, audioData }
+    return { videoData: video.bytes, audioData: audio.bytes }
   } catch (error) {
     controller.abort()
     throw error
   }
 }
 
+// ffmpeg's own log is the only place the real reason lives ("moov atom not
+// found", "Invalid data found when processing input", ...). Without it a failed
+// mux can only report the FS error the library throws afterwards.
+const LOG_NOISE = /^(configuration:|libav|libsw| {2}built| {2}lib|Input #|Duration|Stream #|Output #|Press \[q)/
+const collectLogs = (ffmpeg) => {
+  const lines = []
+  const onLog = ({ message }) => {
+    if (message && !LOG_NOISE.test(message.trim())) lines.push(message.trim())
+    if (lines.length > 40) lines.shift()
+  }
+  ffmpeg.on('log', onLog)
+  return { lines, stop: () => ffmpeg.off('log', onLog) }
+}
+
+const WORK_FILES = ['video.mp4', 'audio.m4a', 'output.mp4']
+
 /**
  * Mux the two streams into a single mp4. Both inputs are already H.264/AAC in
  * an mp4 container, so this is a stream copy - no re-encoding, just remuxing.
  */
-export const muxToMp4 = async ({ videoData, audioData, onProgress }) => {
+export const muxToMp4 = ({ videoData, audioData, onProgress }) => withFFmpeg(async () => {
   const ffmpeg = await getFFmpeg()
-  const inputs = ['video.mp4', 'audio.m4a']
-  const output = 'output.mp4'
+  const [videoInput, audioInput] = WORK_FILES
+  const output = WORK_FILES[2]
+  const logs = collectLogs(ffmpeg)
 
   const handleProgress = ({ progress }) => {
     if (typeof progress === 'number' && isFinite(progress)) {
@@ -204,12 +358,30 @@ export const muxToMp4 = async ({ videoData, audioData, onProgress }) => {
   }
   ffmpeg.on('progress', handleProgress)
 
+  // Any leftover file from an earlier failed run would make ffmpeg stop and ask
+  // whether to overwrite, which it cannot do without a stdin.
+  const clean = async () => {
+    for (const file of WORK_FILES) {
+      try { await ffmpeg.deleteFile(file) } catch { /* was not there */ }
+    }
+  }
+
   try {
-    await ffmpeg.writeFile(inputs[0], videoData)
-    await ffmpeg.writeFile(inputs[1], audioData)
-    await ffmpeg.exec([
-      '-i', inputs[0],
-      '-i', inputs[1],
+    await clean()
+
+    try {
+      await ffmpeg.writeFile(videoInput, videoData)
+      await ffmpeg.writeFile(audioInput, audioData)
+    } catch (error) {
+      throw normalizeError(error, 'Could not load the streams for merging')
+    }
+
+    // -nostdin/-y: ffmpeg.wasm has no stdin, so an "overwrite?" prompt would
+    // fail the command instead of asking.
+    const args = [
+      '-nostdin', '-y',
+      '-i', videoInput,
+      '-i', audioInput,
       // Explicit mapping keeps the first video/audio track and drops any
       // subtitle or cover-art streams the inputs may carry.
       '-map', '0:v:0',
@@ -217,19 +389,57 @@ export const muxToMp4 = async ({ videoData, audioData, onProgress }) => {
       '-c', 'copy',
       '-movflags', '+faststart',
       output,
-    ])
-    const data = await ffmpeg.readFile(output)
+    ]
+
+    let status = await ffmpeg.exec(args)
+
+    // Muxers that cannot place a codec in mp4 fail on the container, not the
+    // data. Retry without faststart before giving up on the whole merge.
+    if (status !== 0) {
+      console.warn('[merge] ffmpeg exited with', status, '- retrying without faststart')
+      await clean()
+      await ffmpeg.writeFile(videoInput, videoData)
+      await ffmpeg.writeFile(audioInput, audioData)
+      status = await ffmpeg.exec([
+        '-nostdin', '-y', '-i', videoInput, '-i', audioInput,
+        '-map', '0:v:0', '-map', '1:a:0', '-c', 'copy', output,
+      ])
+    }
+
+    if (status !== 0) {
+      const detail = logs.lines.slice(-3).join(' | ')
+      const error = new Error(`Merging failed: ${detail || `ffmpeg exited with code ${status}`}`)
+      error.code = BAD_MEDIA
+      throw error
+    }
+
+    let data
+    try {
+      data = await ffmpeg.readFile(output)
+    } catch (error) {
+      throw normalizeError(error, 'The merged file was not produced')
+    }
+    if (!data || data.length === 0) {
+      const error = new Error('The merged file came out empty')
+      error.code = BAD_MEDIA
+      throw error
+    }
+
     onProgress?.(100)
     return new Blob([data], { type: 'video/mp4' })
+  } catch (error) {
+    // Leave the instance clean for the next video instead of letting one
+    // failure break everything that follows it.
+    disposeFFmpeg()
+    throw normalizeError(error, 'Merging failed')
   } finally {
     ffmpeg.off('progress', handleProgress)
+    logs.stop()
     // Free the wasm heap again, otherwise a playlist download would accumulate
     // every video until the tab runs out of memory.
-    for (const file of [...inputs, output]) {
-      try { await ffmpeg.deleteFile(file) } catch { /* never written */ }
-    }
+    await clean().catch(() => {})
   }
-}
+})
 
 export const saveBlob = (blob, filename) => {
   const url = URL.createObjectURL(blob)

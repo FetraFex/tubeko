@@ -4,18 +4,24 @@ import {
     TOO_LARGE,
     downloadAudioOnly,
     downloadMedia,
+    isDirectMedia,
     muxToMp4,
     sanitizeFilename,
     saveBlob,
 } from '../lib/browserDownload';
 
 
+// yt-dlp's format list also contains HLS manifests (.m3u8) whose "media" is a
+// few KB of text. Those cannot be merged, so they are never offered to ffmpeg.
+const usableFormats = (formats) => (formats || []).filter(isDirectMedia);
+
 // Prefer 720p (itag 136), otherwise the highest resolution on offer.
 const selectVideoFormat = (formats) => {
-    const preferred = formats.find((format) => format.quality === "720p" && format.itag == "136");
+    const direct = usableFormats(formats);
+    const preferred = direct.find((format) => format.quality === "720p" && format.itag == "136");
     if (preferred) return preferred;
 
-    const videoFormats = formats.filter(f => f.type.includes("video"));
+    const videoFormats = direct.filter(f => f.type.includes("video"));
     if (videoFormats.length === 0) return null;
 
     return videoFormats.reduce((highest, current) => {
@@ -27,7 +33,7 @@ const selectVideoFormat = (formats) => {
 
 // Prefer ~128kbps audio, otherwise the highest bitrate on offer.
 const selectAudioFormat = (formats) => {
-    const audioFormats = formats.filter(f => f.type === "audio only");
+    const audioFormats = usableFormats(formats).filter(f => f.type === "audio only");
     if (audioFormats.length === 0) return null;
 
     const preferred = audioFormats.find(format => {
@@ -56,6 +62,9 @@ const Video = forwardRef(({ title, thumbnail, videoId, onComplete, onQueueAfter 
     // Shown inline instead of an alert(): a modal alert would freeze the whole
     // playlist queue until it was dismissed.
     const [error, setError] = useState('');
+    // Non-fatal information, e.g. "the browser could not merge this one, the
+    // server finished it instead".
+    const [notice, setNotice] = useState('');
     const [downloading, setDownloading] = useState({
         status: false,
         type: '', // 'video', 'audio', or 'merge'
@@ -77,6 +86,7 @@ const Video = forwardRef(({ title, thumbnail, videoId, onComplete, onQueueAfter 
     const handleAudioDownload = async () => {
         if (downloading.status) return;
         setError('');
+        setNotice('');
         setProgressText("Starting audio download...");
         setProgress(0);
         setSize({ downloaded: '', total: '' });
@@ -94,6 +104,7 @@ const Video = forwardRef(({ title, thumbnail, videoId, onComplete, onQueueAfter 
             setProgressText("Downloading audio...");
             const audioData = await downloadAudioOnly({
                 audioUrl: audioFormat.url,
+                expectedSize: audioFormat.filesizeBytes,
                 onProgress: ({ percent, downloaded, total, speed: rate, eta }) => {
                     setProgress(percent);
                     setSize({ downloaded, total });
@@ -116,8 +127,13 @@ const Video = forwardRef(({ title, thumbnail, videoId, onComplete, onQueueAfter 
     };
 
     const handleDownload = async () => {
+        // The playlist queue and the row buttons both call this, and two muxes
+        // at once would share one ffmpeg instance.
+        if (downloading.status) return;
         setProgressText("Starting download...")
         setError('');
+        setNotice('');
+        setDownloading(prev => ({ ...prev, status: true, type: 'video+audio' }));
         try {
             // 1. Fetch video metadata to pick formats
             const data = await fetchFormats();
@@ -135,8 +151,6 @@ const Video = forwardRef(({ title, thumbnail, videoId, onComplete, onQueueAfter 
                 throw new Error('The server did not return direct media URLs for these formats');
             }
 
-            setDownloading(prev => ({ ...prev, status: true, type: 'video+audio' }));
-
             // 2. Both streams are pulled in parallel through the server relay
             //    (~zero server CPU) and muxed here in the browser.
             const label = sanitizeFilename(data.title);
@@ -147,6 +161,8 @@ const Video = forwardRef(({ title, thumbnail, videoId, onComplete, onQueueAfter 
                 const { videoData, audioData } = await downloadMedia({
                     videoUrl: preferredVideoFormat.url,
                     audioUrl: preferredAudioFormat.url,
+                    videoSize: preferredVideoFormat.filesizeBytes,
+                    audioSize: preferredAudioFormat.filesizeBytes,
                     onProgress: ({ percent, downloaded, total, speed: rate, eta }) => {
                         setProgress(percent);
                         setSize({ downloaded, total });
@@ -166,10 +182,18 @@ const Video = forwardRef(({ title, thumbnail, videoId, onComplete, onQueueAfter 
                     audioData,
                     onProgress: setProgress,
                 });
-            } catch (error) {
-                if (error.code !== TOO_LARGE) throw error;
+            } catch (browserError) {
+                // In-browser merging can be stopped by things the page cannot
+                // fix: a stream the browser could not fetch, a codec the mp4
+                // muxer refuses, or a video too large for wasm memory. The
+                // server pipeline can always finish it, so use that rather
+                // than failing the download (and stalling the playlist).
+                const reason = browserError.code === TOO_LARGE
+                    ? 'too large for the browser'
+                    : browserError.message;
+                console.warn('[download] browser pipeline failed, merging on the server:', browserError);
+                setNotice(`Browser merge failed (${reason}) - the server finished this one.`);
 
-                // Too big to hold in wasm memory, so let the server mux it.
                 blob = await downloadOnServer({
                     videoItag: preferredVideoFormat.itag,
                     audioItag: preferredAudioFormat.itag,
@@ -193,10 +217,11 @@ const Video = forwardRef(({ title, thumbnail, videoId, onComplete, onQueueAfter 
         }
     };
 
-    // Fallback for videos that are too large to mux in the browser: the server
-    // downloads, merges and streams the finished file back.
+    // Fallback for anything the browser cannot finish (too large for wasm
+    // memory, a stream it could not fetch, a codec ffmpeg.wasm refuses): the
+    // server downloads, merges and streams the finished file back.
     const downloadOnServer = async ({ videoItag, audioItag }) => {
-        setProgressText("Large video - merging on the server...");
+        setProgressText("Merging on the server...");
         setProgress(0);
         setSize({ downloaded: '', total: '' });
 
@@ -251,6 +276,7 @@ const Video = forwardRef(({ title, thumbnail, videoId, onComplete, onQueueAfter 
                         <p>{speed}{eta ? ` · ETA ${eta}` : ''}</p>
                     </div>
                     {error && <p className="text-red-400 text-sm mt-1">{error}</p>}
+                    {notice && <p className="text-amber-300 text-sm mt-1">{notice}</p>}
                 </div>
                 <div className="flex gap-x-3">
                     <button
