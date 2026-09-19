@@ -2,11 +2,46 @@ import React from 'react'
 import { useState, forwardRef, useImperativeHandle } from 'react';
 import {
     TOO_LARGE,
+    downloadAudioOnly,
     downloadMedia,
     muxToMp4,
     sanitizeFilename,
     saveBlob,
 } from '../lib/browserDownload';
+
+
+// Prefer 720p (itag 136), otherwise the highest resolution on offer.
+const selectVideoFormat = (formats) => {
+    const preferred = formats.find((format) => format.quality === "720p" && format.itag == "136");
+    if (preferred) return preferred;
+
+    const videoFormats = formats.filter(f => f.type.includes("video"));
+    if (videoFormats.length === 0) return null;
+
+    return videoFormats.reduce((highest, current) => {
+        const currentQuality = parseInt(current.quality) || 0;
+        const highestQuality = parseInt(highest.quality) || 0;
+        return currentQuality > highestQuality ? current : highest;
+    }, videoFormats[0]);
+};
+
+// Prefer ~128kbps audio, otherwise the highest bitrate on offer.
+const selectAudioFormat = (formats) => {
+    const audioFormats = formats.filter(f => f.type === "audio only");
+    if (audioFormats.length === 0) return null;
+
+    const preferred = audioFormats.find(format => {
+        const qualityValue = parseInt(format.quality.split('.')[0]);
+        return qualityValue === 129 || qualityValue === 128;
+    });
+    if (preferred) return preferred;
+
+    return audioFormats.reduce((highest, current) => {
+        const currentQuality = parseFloat(current.quality) || 0;
+        const highestQuality = parseFloat(highest.quality) || 0;
+        return currentQuality > highestQuality ? current : highest;
+    }, audioFormats[0]);
+};
 
 
 const Video = forwardRef(({ title, thumbnail, videoId, onComplete, onQueueAfter }, ref) => {
@@ -18,6 +53,9 @@ const Video = forwardRef(({ title, thumbnail, videoId, onComplete, onQueueAfter 
     const [size, setSize] = useState({ downloaded: '', total: '' });
     const [eta, setEta] = useState('');
     const [progressText, setProgressText] = useState('Waiting for download...');
+    // Shown inline instead of an alert(): a modal alert would freeze the whole
+    // playlist queue until it was dismissed.
+    const [error, setError] = useState('');
     const [downloading, setDownloading] = useState({
         status: false,
         type: '', // 'video', 'audio', or 'merge'
@@ -25,49 +63,66 @@ const Video = forwardRef(({ title, thumbnail, videoId, onComplete, onQueueAfter 
     });
 
 
-    const handleDownload = async (format) => {
-        setProgressText("Starting download...")
-        try {
-            // 1. Fetch video metadata to pick formats
-            const response = await fetch(`http://localhost:3000/videoInfo?url=${encodeURIComponent("https://www.youtube.com/watch?v=" + videoId)}`);
-            if (!response.ok) {
-                throw new Error(`HTTP error! status: ${response.status}`);
-            }
-            const data = await response.json();
-            console.log(data);
+    // Metadata for the current video: title plus every downloadable format.
+    const fetchFormats = async () => {
+        const response = await fetch(`http://localhost:3000/videoInfo?url=${encodeURIComponent("https://www.youtube.com/watch?v=" + videoId)}`);
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        return response.json();
+    };
 
-            let preferredVideoFormat = data.formats.find(format => format.quality === "720p" && format.itag == "136");
-            let preferredAudioFormat = data.formats.find(format => {
-                if (format.type === "audio only") {
-                    const qualityValue = parseInt(format.quality.split('.')[0]);
-                    return qualityValue === 129 || qualityValue === 128;
-                }
-                return false;
+    // Audio-only download: pulls just the audio stream and saves it as m4a.
+    // No video, and no mux step - the stream is already AAC.
+    const handleAudioDownload = async () => {
+        if (downloading.status) return;
+        setError('');
+        setProgressText("Starting audio download...");
+        setProgress(0);
+        setSize({ downloaded: '', total: '' });
+        setSpeed('');
+        setEta('');
+        setDownloading(prev => ({ ...prev, status: true, type: 'audio' }));
+
+        try {
+            const data = await fetchFormats();
+            const audioFormat = selectAudioFormat(data.formats);
+
+            if (!audioFormat) throw new Error('Could not find a suitable audio format');
+            if (!audioFormat.url) throw new Error('The server did not return a direct media URL for this format');
+
+            setProgressText("Downloading audio...");
+            const audioData = await downloadAudioOnly({
+                audioUrl: audioFormat.url,
+                onProgress: ({ percent, downloaded, total, speed: rate, eta }) => {
+                    setProgress(percent);
+                    setSize({ downloaded, total });
+                    setSpeed(rate);
+                    setEta(eta);
+                },
             });
 
-            // Fallback to highest quality video if 720p not found
-            if (!preferredVideoFormat) {
-                const videoFormats = data.formats.filter(f => f.type.includes("video"));
-                if (videoFormats.length > 0) {
-                    preferredVideoFormat = videoFormats.reduce((highest, current) => {
-                        const currentQuality = parseInt(current.quality) || 0;
-                        const highestQuality = parseInt(highest.quality) || 0;
-                        return currentQuality > highestQuality ? current : highest;
-                    }, videoFormats[0]);
-                }
-            }
+            setProgressText("Saving file...");
+            setProgress(100);
+            setSpeed('');
+            setEta('');
+            saveBlob(new Blob([audioData], { type: 'audio/mp4' }), `${sanitizeFilename(data.title)}.m4a`);
+        } catch (error) {
+            console.error('Audio download error:', error);
+            setError(error.message || 'Audio download failed');
+        } finally {
+            setDownloading({ status: false, type: '', progress: 0 });
+        }
+    };
 
-            // Fallback to highest quality audio if 128/129kbps not found
-            if (!preferredAudioFormat) {
-                const audioFormats = data.formats.filter(f => f.type === "audio only");
-                if (audioFormats.length > 0) {
-                    preferredAudioFormat = audioFormats.reduce((highest, current) => {
-                        const currentQuality = parseFloat(current.quality) || 0;
-                        const highestQuality = parseFloat(highest.quality) || 0;
-                        return currentQuality > highestQuality ? current : highest;
-                    }, audioFormats[0]);
-                }
-            }
+    const handleDownload = async () => {
+        setProgressText("Starting download...")
+        setError('');
+        try {
+            // 1. Fetch video metadata to pick formats
+            const data = await fetchFormats();
+            const preferredVideoFormat = selectVideoFormat(data.formats);
+            const preferredAudioFormat = selectAudioFormat(data.formats);
 
             if (!preferredVideoFormat || !preferredAudioFormat) {
                 const missing = [];
@@ -75,9 +130,6 @@ const Video = forwardRef(({ title, thumbnail, videoId, onComplete, onQueueAfter 
                 if (!preferredAudioFormat) missing.push("audio");
                 throw new Error(`Could not find suitable ${missing.join(" and ")} format(s)`);
             }
-
-            console.log("Selected video format:", preferredVideoFormat);
-            console.log("Selected audio format:", preferredAudioFormat);
 
             if (!preferredVideoFormat.url || !preferredAudioFormat.url) {
                 throw new Error('The server did not return direct media URLs for these formats');
@@ -112,7 +164,6 @@ const Video = forwardRef(({ title, thumbnail, videoId, onComplete, onQueueAfter 
                 blob = await muxToMp4({
                     videoData,
                     audioData,
-                    title: label,
                     onProgress: setProgress,
                 });
             } catch (error) {
@@ -134,7 +185,8 @@ const Video = forwardRef(({ title, thumbnail, videoId, onComplete, onQueueAfter 
 
         } catch (error) {
             console.error('Download error:', error);
-            alert('Download failed: ' + error.message);
+            // Inline, not alert(): the queue must keep advancing unattended.
+            setError(error.message || 'Download failed');
         } finally {
             setDownloading({ status: false, type: '', progress: 0 });
             onComplete();
@@ -198,11 +250,12 @@ const Video = forwardRef(({ title, thumbnail, videoId, onComplete, onQueueAfter 
                         </p>
                         <p>{speed}{eta ? ` · ETA ${eta}` : ''}</p>
                     </div>
+                    {error && <p className="text-red-400 text-sm mt-1">{error}</p>}
                 </div>
                 <div className="flex gap-x-3">
                     <button
                         className="text-black font-bold py-2 flex-1 rounded-lg hover:bg-green-300 bg-green-400 transition-all duration-300"
-                        onClick={() => onQueueAfter()}>Download MP3</button>
+                        onClick={handleAudioDownload}>Download MP3</button>
                     <button
                         className="text-black font-bold py-2 flex-1 rounded-lg hover:bg-green-300 bg-green-400 transition-all duration-300"
                         onClick={() => onQueueAfter()}>Download MP4</button>

@@ -116,6 +116,37 @@ const downloadStream = async (cdnUrl, onProgress, signal, maxBytes) => {
 
 const UPDATE_INTERVAL = 200
 
+// Build the shared size/speed/ETA readout for a transfer that has already
+// received some bytes for some time.
+const readout = ({ received, total, startedAt, onProgress }) => {
+  const seconds = (performance.now() - startedAt) / 1000
+  const speed = seconds > 0 ? received / seconds : 0
+  onProgress({
+    percent: total ? Math.min(100, (received / total) * 100) : 0,
+    downloaded: formatBytes(received),
+    total: formatBytes(total),
+    speed: speed > 0 ? `${formatBytes(speed)}/s` : '',
+    eta: speed > 0 && total > received ? formatEta((total - received) / speed) : '',
+  })
+}
+
+/**
+ * Audio-only download: pulls just the audio stream and saves it as-is. The
+ * format is already AAC in an m4a container, so no re-encode is needed.
+ */
+export const downloadAudioOnly = async ({ audioUrl, onProgress, maxBytes = MAX_BROWSER_BYTES }) => {
+  const startedAt = performance.now()
+  let lastReport = 0
+
+  return downloadStream(audioUrl, ({ received, total }) => {
+    if (!onProgress) return
+    const now = performance.now()
+    if (now - lastReport < UPDATE_INTERVAL) return
+    lastReport = now
+    readout({ received, total, startedAt, onProgress })
+  }, undefined, maxBytes)
+}
+
 /**
  * Download the video and audio formats in parallel, reporting combined
  * progress so the UI shows one coherent size/speed/ETA readout.
@@ -136,18 +167,11 @@ export const downloadMedia = async ({ videoUrl, audioUrl, onProgress, maxBytes =
     if (!force && now - lastReport < UPDATE_INTERVAL) return
     lastReport = now
 
-    const received = state.video.received + state.audio.received
-    const total = state.video.total + state.audio.total
-    const seconds = (now - startedAt) / 1000
-    const speed = seconds > 0 ? received / seconds : 0
-    const remaining = total - received
-
-    onProgress({
-      percent: total ? Math.min(100, (received / total) * 100) : 0,
-      downloaded: formatBytes(received),
-      total: formatBytes(total),
-      speed: speed > 0 ? `${formatBytes(speed)}/s` : '',
-      eta: speed > 0 && remaining > 0 ? formatEta(remaining / speed) : '',
+    readout({
+      received: state.video.received + state.audio.received,
+      total: state.video.total + state.audio.total,
+      startedAt,
+      onProgress,
     })
   }
 
@@ -168,7 +192,7 @@ export const downloadMedia = async ({ videoUrl, audioUrl, onProgress, maxBytes =
  * Mux the two streams into a single mp4. Both inputs are already H.264/AAC in
  * an mp4 container, so this is a stream copy - no re-encoding, just remuxing.
  */
-export const muxToMp4 = async ({ videoData, audioData, title = 'video', onProgress }) => {
+export const muxToMp4 = async ({ videoData, audioData, onProgress }) => {
   const ffmpeg = await getFFmpeg()
   const inputs = ['video.mp4', 'audio.m4a']
   const output = 'output.mp4'
