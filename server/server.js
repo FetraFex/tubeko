@@ -43,6 +43,44 @@ const PLAYLIST_ID_PATTERN = /^[A-Za-z0-9_-]{10,}$/;
 // runaway pagination on very large or malformed playlists.
 const MAX_PLAYLIST_PAGES = 40;
 
+// yt-dlp reports sizes like "6.70MiB". These helpers convert to bytes and back
+// to a display string so the UI can show how much of the stream has arrived.
+const SIZE_UNITS = { B: 1, KB: 1e3, MB: 1e6, GB: 1e9, TB: 1e12, KIB: 1024, MIB: 1024 ** 2, GIB: 1024 ** 3, TIB: 1024 ** 4 };
+
+const parseSize = (text) => {
+  const m = String(text).trim().match(/^([\d.]+)\s*([KMGT]?i?B)$/i);
+  if (!m) return null;
+  const unit = SIZE_UNITS[m[2].toUpperCase()];
+  return unit ? parseFloat(m[1]) * unit : null;
+};
+
+const formatSize = (bytes) => {
+  if (!bytes || !isFinite(bytes)) return '';
+  const units = ['B', 'KiB', 'MiB', 'GiB', 'TiB'];
+  let value = bytes;
+  let i = 0;
+  while (value >= 1024 && i < units.length - 1) { value /= 1024; i++; }
+  return `${value.toFixed(value < 10 ? 2 : 1)}${units[i]}`;
+};
+
+// Parse one yt-dlp progress line, e.g.
+//   [download]  12.3% of    6.70MiB at  481.32KiB/s ETA 00:11
+const parseYtDlpProgress = (line) => {
+  const m = line.match(/\[download\]\s+([\d.]+)%\s+of\s+~?\s*([\d.]+\s*[KMGT]?i?B)/i);
+  if (!m) return null;
+  const percent = parseFloat(m[1]);
+  const totalBytes = parseSize(m[2]);
+  const speed = line.match(/at\s+([\d.]+\s*[KMGT]?i?B\/s)/i);
+  const eta = line.match(/ETA\s+([\d:]+)/i);
+  return {
+    percent,
+    total: formatSize(totalBytes),
+    downloaded: totalBytes ? formatSize(totalBytes * (percent / 100)) : '',
+    speed: speed ? speed[1].replace(/\s+/g, '') : '',
+    eta: eta ? eta[1] : '',
+  };
+};
+
 // Helper function to safely run yt-dlp
 const runYtDlpCommand = (args, options = {}) => {
   return new Promise((resolve, reject) => {
@@ -425,7 +463,7 @@ app.get('/download/full', async (req, res) => {
   };
 
   // Helper: run a yt-dlp command that writes to a file (not stdout)
-  const runToFile = (extraArgs, filePath) => new Promise((resolve, reject) => {
+  const runToFile = (extraArgs, filePath, phase) => new Promise((resolve, reject) => {
     const args = [
       '--no-check-certificates', '--force-ipv4',
       '--retries', '5', '--fragment-retries', '5', '--socket-timeout', '15',
@@ -439,12 +477,22 @@ app.get('/download/full', async (req, res) => {
     console.log('Executing yt-dlp:', args.join(' '));
     const proc = spawn(ytdlpPath, args, { stdio: ['ignore', 'pipe', 'pipe'], shell: false, windowsHide: true });
 
+    // yt-dlp prints progress to stdout; only fatal errors go to stderr.
+    let stdoutBuffer = '';
+    proc.stdout.on('data', (chunk) => {
+      stdoutBuffer += chunk.toString();
+      const lines = stdoutBuffer.split(/\r?\n/);
+      stdoutBuffer = lines.pop(); // keep the trailing partial line
+      for (const line of lines) {
+        const parsed = parseYtDlpProgress(line);
+        if (!parsed) continue;
+        console.log(line.trim());
+        broadcast({ type: 'progress', phase, ...parsed });
+      }
+    });
+
     proc.stderr.on('data', (d) => {
       const line = d.toString().trim();
-      if (line.startsWith('[download]')) {
-        console.log(line);
-        broadcast({ type: 'progress', data: line });
-      }
       if (line.includes('ERROR')) {
         console.error(line);
         broadcast({ type: 'error', error: line });
@@ -453,21 +501,30 @@ app.get('/download/full', async (req, res) => {
 
     proc.on('error', reject);
     proc.on('close', (code) => {
-      if (code === 0) resolve();
-      else reject(new Error(`yt-dlp exited with code ${code}`));
+      if (code === 0) {
+        broadcast({ type: 'progress', phase, percent: 100 });
+        resolve();
+      } else {
+        reject(new Error(`yt-dlp exited with code ${code}`));
+      }
     });
   });
 
   // Helper: run ffmpeg to merge two files
   const merge = (vPath, aPath, outPath) => new Promise((resolve, reject) => {
-    broadcast({ type: 'progress', data: '[merge] Starting ffmpeg merge...' });
+    broadcast({ type: 'phase', phase: 'merge' });
     ffmpeg()
       .input(vPath)
       .input(aPath)
       .outputOptions(['-c:v copy', '-c:a aac', '-movflags +faststart'])
       .output(outPath)
       .on('start', (cmd) => console.log('FFmpeg:', cmd))
-      .on('progress', (p) => broadcast({ type: 'progress', data: `[merge] ${p.percent ? p.percent.toFixed(1) + '%' : ''} ${p.timemark || ''}` }))
+      .on('progress', (p) => {
+        // Before ffmpeg knows the stream duration it can report nonsense
+        // (e.g. -180348016.8%), so only forward sane percentages.
+        const percent = isFinite(p.percent) && p.percent >= 0 && p.percent <= 100 ? p.percent : 0;
+        broadcast({ type: 'progress', phase: 'merge', percent, timemark: p.timemark || '' });
+      })
       .on('end', () => { console.log('Merge complete'); resolve(); })
       .on('error', (err) => { console.error('FFmpeg error:', err); reject(err); })
       .run();
@@ -482,12 +539,12 @@ app.get('/download/full', async (req, res) => {
 
   try {
     // 1. Download video to temp file
-    broadcast({ type: 'progress', data: '[download] Downloading video stream...' });
-    await runToFile([url, '-f', videoItag], videoPath);
+    broadcast({ type: 'phase', phase: 'video' });
+    await runToFile([url, '-f', videoItag], videoPath, 'video');
 
     // 2. Download audio to temp file
-    broadcast({ type: 'progress', data: '[download] Downloading audio stream...' });
-    await runToFile([url, '-f', audioItag], audioPath);
+    broadcast({ type: 'phase', phase: 'audio' });
+    await runToFile([url, '-f', audioItag], audioPath, 'audio');
 
     // 3. Merge with ffmpeg
     await merge(videoPath, audioPath, mergedPath);
