@@ -1,14 +1,12 @@
 import React from 'react'
 import { useState, forwardRef, useImperativeHandle } from 'react';
-
-
-// The server tags every progress update with the pipeline phase it belongs to
-// (video -> audio -> merge); each phase has its own byte counter.
-const PHASE_LABELS = {
-    video: 'Downloading video stream...',
-    audio: 'Downloading audio stream...',
-    merge: 'Merging video and audio...',
-};
+import {
+    TOO_LARGE,
+    downloadMedia,
+    muxToMp4,
+    sanitizeFilename,
+    saveBlob,
+} from '../lib/browserDownload';
 
 
 const Video = forwardRef(({ title, thumbnail, videoId, onComplete, onQueueAfter }, ref) => {
@@ -28,23 +26,15 @@ const Video = forwardRef(({ title, thumbnail, videoId, onComplete, onQueueAfter 
 
 
     const handleDownload = async (format) => {
-        let progressEventSource = null;
-
         setProgressText("Starting download...")
         try {
             // 1. Fetch video metadata to pick formats
-            let hasAudioOnly = false
-            let data = null
-            let response = null
-            do {
-                response = await fetch(`http://localhost:3000/videoInfo?url=${encodeURIComponent("https://www.youtube.com/watch?v=" + videoId)}`);
-                if (!response.ok) {
-                    throw new Error(`HTTP error! status: ${response.status}`);
-                }
-                data = await response.json();
-                console.log(data);
-                hasAudioOnly = data.formats.some(format => format.type === 'audio only');
-            } while (!hasAudioOnly)
+            const response = await fetch(`http://localhost:3000/videoInfo?url=${encodeURIComponent("https://www.youtube.com/watch?v=" + videoId)}`);
+            if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
+            const data = await response.json();
+            console.log(data);
 
             let preferredVideoFormat = data.formats.find(format => format.quality === "720p" && format.itag == "136");
             let preferredAudioFormat = data.formats.find(format => {
@@ -89,78 +79,86 @@ const Video = forwardRef(({ title, thumbnail, videoId, onComplete, onQueueAfter 
             console.log("Selected video format:", preferredVideoFormat);
             console.log("Selected audio format:", preferredAudioFormat);
 
-            // 2. Listen for server-side progress
-            const streamId = Math.random().toString(36).substring(7);
-            progressEventSource = new EventSource(
-                `http://localhost:3000/download/progress/${streamId}`
-            );
+            if (!preferredVideoFormat.url || !preferredAudioFormat.url) {
+                throw new Error('The server did not return direct media URLs for these formats');
+            }
 
-            progressEventSource.onmessage = (e) => {
-                const payload = JSON.parse(e.data);
-
-                if (payload.type === 'phase') {
-                    // New phase, new byte counter, so reset the readout.
-                    setProgressText(PHASE_LABELS[payload.phase] || 'Downloading...');
-                    setProgress(0);
-                    setSize({ downloaded: '', total: '' });
-                    setSpeed('');
-                    setEta('');
-                    return;
-                }
-
-                if (payload.type === 'error') {
-                    console.error('Download error:', payload.error);
-                    return;
-                }
-
-                if (payload.type !== 'progress') return;
-
-                if (typeof payload.percent === 'number') setProgress(payload.percent);
-                if (payload.downloaded || payload.total) {
-                    setSize({ downloaded: payload.downloaded || '', total: payload.total || '' });
-                }
-                if (payload.speed) setSpeed(payload.speed);
-                if (payload.eta) setEta(payload.eta);
-            };
-
-            // 3. Single server-side call: download video + audio, merge, stream back
-            setProgressText("Downloading...");
             setDownloading(prev => ({ ...prev, status: true, type: 'video+audio' }));
 
-            const dlResponse = await fetch(
-                `http://localhost:3000/download/full?url=${encodeURIComponent("https://www.youtube.com/watch?v=" + videoId)}&videoItag=${preferredVideoFormat.itag}&audioItag=${preferredAudioFormat.itag}&id=${streamId}`
-            );
+            // 2. Both streams are pulled in parallel through the server relay
+            //    (~zero server CPU) and muxed here in the browser.
+            const label = sanitizeFilename(data.title);
+            let blob;
 
-            if (!dlResponse.ok) {
-                const err = await dlResponse.json().catch(() => ({ error: 'Download failed' }));
-                throw new Error(err.error || 'Download failed');
+            try {
+                setProgressText("Downloading video + audio...");
+                const { videoData, audioData } = await downloadMedia({
+                    videoUrl: preferredVideoFormat.url,
+                    audioUrl: preferredAudioFormat.url,
+                    onProgress: ({ percent, downloaded, total, speed: rate, eta }) => {
+                        setProgress(percent);
+                        setSize({ downloaded, total });
+                        setSpeed(rate);
+                        setEta(eta);
+                    },
+                });
+
+                setProgressText("Merging video and audio...");
+                setProgress(0);
+                setSize({ downloaded: '', total: '' });
+                setSpeed('');
+                setEta('');
+
+                blob = await muxToMp4({
+                    videoData,
+                    audioData,
+                    title: label,
+                    onProgress: setProgress,
+                });
+            } catch (error) {
+                if (error.code !== TOO_LARGE) throw error;
+
+                // Too big to hold in wasm memory, so let the server mux it.
+                blob = await downloadOnServer({
+                    videoItag: preferredVideoFormat.itag,
+                    audioItag: preferredAudioFormat.itag,
+                });
             }
 
             setProgressText("Saving file...");
             setProgress(100);
             setSpeed('');
             setEta('');
-
-            // 4. Save the merged file in the browser
-            const blob = await dlResponse.blob();
-            const downloadUrl = window.URL.createObjectURL(blob);
-            const link = document.createElement('a');
-            link.href = downloadUrl;
-            link.download = `${data.title || 'video'}.mp4`;
-            document.body.appendChild(link);
-            link.click();
-            document.body.removeChild(link);
-            window.URL.revokeObjectURL(downloadUrl);
+            saveBlob(blob, `${label}.mp4`);
             console.log('Download complete');
 
         } catch (error) {
             console.error('Download error:', error);
             alert('Download failed: ' + error.message);
         } finally {
-            if (progressEventSource) progressEventSource.close();
             setDownloading({ status: false, type: '', progress: 0 });
             onComplete();
         }
+    };
+
+    // Fallback for videos that are too large to mux in the browser: the server
+    // downloads, merges and streams the finished file back.
+    const downloadOnServer = async ({ videoItag, audioItag }) => {
+        setProgressText("Large video - merging on the server...");
+        setProgress(0);
+        setSize({ downloaded: '', total: '' });
+
+        const response = await fetch(
+            `http://localhost:3000/download/full?url=${encodeURIComponent("https://www.youtube.com/watch?v=" + videoId)}&videoItag=${videoItag}&audioItag=${audioItag}`
+        );
+
+        if (!response.ok) {
+            const err = await response.json().catch(() => ({ error: 'Download failed' }));
+            throw new Error(err.error || 'Download failed');
+        }
+
+        setProgressText("Saving file...");
+        return response.blob();
     };
 
     useImperativeHandle(ref, () => ({

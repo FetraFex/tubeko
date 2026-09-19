@@ -7,5 +7,9 @@ export default defineConfig({
   build: {
     sourcemap: true,
   },
-
+  optimizeDeps: {
+    // @ffmpeg/ffmpeg spawns its worker with `new URL('./worker.js', import.meta.url)`.
+    // Pre-bundling rewrites that path, which leaves the worker 404ing in dev.
+    exclude: ['@ffmpeg/ffmpeg'],
+  },
 })
