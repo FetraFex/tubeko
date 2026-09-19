@@ -19,7 +19,12 @@ const activeDownloads = new Map(); // Track active downloads
 const app = express()
 const PORT = process.env.PORT || 3000
 
-app.use(cors({ origin: ['http://localhost:5173', 'http://localhost:5174'] }));
+// Content-Length is not a CORS-safelisted response header, so the browser can
+// only read it (needed for download progress) if it is explicitly exposed.
+app.use(cors({
+  origin: ['http://localhost:5173', 'http://localhost:5174'],
+  exposedHeaders: ['Content-Length', 'Content-Range', 'Accept-Ranges'],
+}));
 app.use(fileUpload());
 ffmpeg.setFfmpegPath(ffmpegPath);
 app.use(express.json());
@@ -572,6 +577,120 @@ app.get('/download/full', async (req, res) => {
       res.status(500).json({ error: err.message || 'Download failed' });
     }
     cleanup();
+  }
+});
+
+/**
+ * Pure byte relay for the media streams.
+ *
+ * /videoInfo returns direct googlevideo URLs per format, but YouTube's CDN sends
+ * no Access-Control-Allow-Origin header, so the browser cannot fetch them
+ * itself. This endpoint pipes the bytes through - no yt-dlp process, no temp
+ * files, no ffmpeg - so the client can download and merge locally.
+ *
+ * Only googlevideo hosts are allowed, otherwise this would be an open proxy.
+ */
+const RELAY_HOST_PATTERN = /(^|\.)googlevideo\.com$/i;
+
+// The CDN throttles unbounded requests to a crawl (measured: an open-ended
+// `Range: bytes=0-` transfer runs at ~30KiB/s and never finishes), while
+// bounded windows run at full link speed. So instead of proxying the stream
+// wholesale, walk the file in windows and stitch them together.
+const RELAY_WINDOW_BYTES = 4 * 1024 * 1024;
+
+app.get('/stream', async (req, res) => {
+  const { url } = req.query;
+  if (!url) return res.status(400).json({ error: 'url is required' });
+
+  let target;
+  try {
+    target = new URL(url);
+  } catch {
+    return res.status(400).json({ error: 'url is not a valid URL' });
+  }
+
+  if (target.protocol !== 'https:' || !RELAY_HOST_PATTERN.test(target.hostname)) {
+    return res.status(403).json({ error: 'Only https googlevideo.com URLs can be relayed' });
+  }
+
+  const requestWindow = (start, end) => axios.get(target.toString(), {
+    responseType: 'stream',
+    timeout: 30000,
+    maxRedirects: 5,
+    validateStatus: () => true,
+    headers: {
+      range: `bytes=${start}-${end}`,
+      // Keeps Content-Length meaningful, which the client's progress relies on.
+      'accept-encoding': 'identity',
+    },
+  });
+
+  // Copy one window to the client, honouring backpressure. Resolves with the
+  // number of bytes actually written.
+  const pipeWindow = (stream) => new Promise((resolve, reject) => {
+    let bytes = 0;
+    stream.on('data', (chunk) => {
+      bytes += chunk.length;
+      if (!res.write(chunk)) {
+        stream.pause();
+        res.once('drain', () => stream.resume());
+      }
+    });
+    stream.on('end', () => resolve(bytes));
+    stream.on('error', reject);
+  });
+
+  // A bodyless GET emits 'close' on the request immediately, so watch the
+  // response instead to notice the browser going away.
+  let clientGone = false;
+  res.on('close', () => {
+    if (!res.writableEnded) clientGone = true;
+  });
+
+  try {
+    let offset = 0;
+    let total = 0;
+
+    while (!total || offset < total) {
+      const end = total ? Math.min(offset + RELAY_WINDOW_BYTES - 1, total - 1) : offset + RELAY_WINDOW_BYTES - 1;
+      const upstream = await requestWindow(offset, end);
+
+      if (upstream.status !== 200 && upstream.status !== 206) {
+        upstream.data.destroy();
+        const message = `YouTube responded with ${upstream.status}`;
+        if (!res.headersSent) return res.status(502).json({ error: message });
+        throw new Error(message);
+      }
+
+      if (!total) {
+        const range = upstream.headers['content-range'];
+        // Content-Range looks like "bytes 0-4194303/18642971"; the total after
+        // the slash is what lets the browser show a real progress bar.
+        total = Number(range && range.split('/')[1]) || Number(upstream.headers['content-length']) || 0;
+        res.status(200);
+        res.setHeader('Content-Type', upstream.headers['content-type'] || 'application/octet-stream');
+        res.setHeader('Accept-Ranges', 'bytes');
+        if (total) res.setHeader('Content-Length', total);
+      }
+
+      const written = await pipeWindow(upstream.data);
+
+      if (clientGone) {
+        upstream.data.destroy();
+        return;
+      }
+      if (written === 0) break; // no progress; stop rather than spin
+      offset += written;
+    }
+
+    res.end();
+  } catch (error) {
+    console.error('/stream error:', error.message);
+    if (!res.headersSent) {
+      res.status(502).json({ error: 'Failed to relay stream', details: error.message });
+    } else if (!res.writableEnded) {
+      res.destroy(error);
+    }
   }
 });
 
