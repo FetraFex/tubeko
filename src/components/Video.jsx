@@ -2,12 +2,23 @@ import React from 'react'
 import { useState, forwardRef, useImperativeHandle } from 'react';
 
 
+// The server tags every progress update with the pipeline phase it belongs to
+// (video -> audio -> merge); each phase has its own byte counter.
+const PHASE_LABELS = {
+    video: 'Downloading video stream...',
+    audio: 'Downloading audio stream...',
+    merge: 'Merging video and audio...',
+};
+
+
 const Video = forwardRef(({ title, thumbnail, videoId, onComplete, onQueueAfter }, ref) => {
 
 
     /***Download information */
     const [progress, setProgress] = useState(0);
-    const [speed, setSpeed] = useState(0)
+    const [speed, setSpeed] = useState('')
+    const [size, setSize] = useState({ downloaded: '', total: '' });
+    const [eta, setEta] = useState('');
     const [progressText, setProgressText] = useState('Waiting for download...');
     const [downloading, setDownloading] = useState({
         status: false,
@@ -85,16 +96,31 @@ const Video = forwardRef(({ title, thumbnail, videoId, onComplete, onQueueAfter 
             );
 
             progressEventSource.onmessage = (e) => {
-                const { type, data: msg } = JSON.parse(e.data);
-                if (type === 'progress') {
-                    console.log('Progress:', msg);
-                    const match = msg.match(/(\d+(\.\d+)?)%/);
-                    const matchspeed = msg.match(/at\s+([\d.]+\s*(?:[KMG]iB\/s))/i);
-                    if (match) setProgress(parseFloat(match[1]));
-                    if (matchspeed) setSpeed(matchspeed[1]);
-                } else if (type === 'error') {
-                    console.error('Download error:', msg);
+                const payload = JSON.parse(e.data);
+
+                if (payload.type === 'phase') {
+                    // New phase, new byte counter, so reset the readout.
+                    setProgressText(PHASE_LABELS[payload.phase] || 'Downloading...');
+                    setProgress(0);
+                    setSize({ downloaded: '', total: '' });
+                    setSpeed('');
+                    setEta('');
+                    return;
                 }
+
+                if (payload.type === 'error') {
+                    console.error('Download error:', payload.error);
+                    return;
+                }
+
+                if (payload.type !== 'progress') return;
+
+                if (typeof payload.percent === 'number') setProgress(payload.percent);
+                if (payload.downloaded || payload.total) {
+                    setSize({ downloaded: payload.downloaded || '', total: payload.total || '' });
+                }
+                if (payload.speed) setSpeed(payload.speed);
+                if (payload.eta) setEta(payload.eta);
             };
 
             // 3. Single server-side call: download video + audio, merge, stream back
@@ -112,6 +138,8 @@ const Video = forwardRef(({ title, thumbnail, videoId, onComplete, onQueueAfter 
 
             setProgressText("Saving file...");
             setProgress(100);
+            setSpeed('');
+            setEta('');
 
             // 4. Save the merged file in the browser
             const blob = await dlResponse.blob();
@@ -166,8 +194,11 @@ const Video = forwardRef(({ title, thumbnail, videoId, onComplete, onQueueAfter 
 
                     </div>
                     <div className="flex justify-between text-white">
-                        <p>{progress.toFixed(1)}%</p>
-                        <p>{speed}</p>
+                        <p>
+                            {progress.toFixed(1)}%
+                            {size.total ? ` · ${size.downloaded ? `${size.downloaded} / ` : ''}${size.total}` : ''}
+                        </p>
+                        <p>{speed}{eta ? ` · ETA ${eta}` : ''}</p>
                     </div>
                 </div>
                 <div className="flex gap-x-3">
