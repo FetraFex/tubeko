@@ -152,8 +152,15 @@ const streamOnce = async (cdnUrl, { onProgress, signal, maxBytes, expectedSize }
   }
 
   const total = Number(response.headers.get('content-length')) || 0
-  if (maxBytes && total > maxBytes) {
-    const error = new Error('Video is too large to merge in the browser')
+  // yt-dlp reports the exact byte size; when it does, that figure decides
+  // whether this is too big, not the header. A header that disagrees must not
+  // push a perfectly mergeable video to the server.
+  const known = expectedSize > 0 ? expectedSize : 0
+  const declared = known || total
+  if (maxBytes && declared > maxBytes) {
+    // Report the real figure: "too large" on its own gives no way to tell a
+    // genuinely huge video from a wrong number.
+    const error = new Error(`This stream is ${formatBytes(declared)}, over the ${formatBytes(maxBytes)} browser limit`)
     error.code = TOO_LARGE
     throw error
   }
@@ -168,7 +175,7 @@ const streamOnce = async (cdnUrl, { onProgress, signal, maxBytes, expectedSize }
     // content-length can be absent; bail out on what has actually arrived.
     if (maxBytes && received + value.length > maxBytes) {
       await reader.cancel().catch(() => {})
-      const error = new Error('Video is too large to merge in the browser')
+      const error = new Error(`This stream is over the ${formatBytes(maxBytes)} browser limit`)
       error.code = TOO_LARGE
       throw error
     }
@@ -186,15 +193,12 @@ const streamOnce = async (cdnUrl, { onProgress, signal, maxBytes, expectedSize }
     offset += chunk.length
   }
 
-  // Reject instead of handing ffmpeg something it cannot open.
-  if (total && received !== total) {
-    const error = new Error(`Truncated download: got ${received} of ${total} bytes`)
-    error.code = BAD_MEDIA
-    throw error
-  }
-  // yt-dlp reports the exact byte size; a mismatch means a partial file.
-  if (expectedSize && Math.abs(received - expectedSize) > 1024) {
-    const error = new Error(`Incomplete download: got ${received} of ${expectedSize} bytes`)
+  // Reject instead of handing ffmpeg something it cannot open. The expected
+  // length comes from yt-dlp when available (it is the exact figure) and from
+  // the response header otherwise.
+  const expected = known || total
+  if (expected && Math.abs(received - expected) > 1024) {
+    const error = new Error(`Incomplete download: got ${received} of ${expected} bytes`)
     error.code = BAD_MEDIA
     throw error
   }

@@ -1,9 +1,11 @@
 import React from 'react'
 import { useState, forwardRef, useImperativeHandle } from 'react';
 import {
+    MAX_BROWSER_BYTES,
     TOO_LARGE,
     downloadAudioOnly,
     downloadMedia,
+    formatBytes,
     isDirectMedia,
     muxToMp4,
     sanitizeFilename,
@@ -152,52 +154,71 @@ const Video = forwardRef(({ title, thumbnail, videoId, onComplete, onQueueAfter 
             }
 
             // 2. Both streams are pulled in parallel through the server relay
-            //    (~zero server CPU) and muxed here in the browser.
+            //    (~zero server CPU) and muxed here in the browser. yt-dlp gives
+            //    exact byte sizes, so a video this tab cannot possibly merge
+            //    goes to the server up front rather than after a failed attempt.
             const label = sanitizeFilename(data.title);
+            const browserBytes = (preferredVideoFormat.filesizeBytes || 0)
+                + (preferredAudioFormat.filesizeBytes || 0);
             let blob;
 
-            try {
-                setProgressText("Downloading video + audio...");
-                const { videoData, audioData } = await downloadMedia({
-                    videoUrl: preferredVideoFormat.url,
-                    audioUrl: preferredAudioFormat.url,
-                    videoSize: preferredVideoFormat.filesizeBytes,
-                    audioSize: preferredAudioFormat.filesizeBytes,
-                    onProgress: ({ percent, downloaded, total, speed: rate, eta }) => {
-                        setProgress(percent);
-                        setSize({ downloaded, total });
-                        setSpeed(rate);
-                        setEta(eta);
-                    },
-                });
-
-                setProgressText("Merging video and audio...");
-                setProgress(0);
-                setSize({ downloaded: '', total: '' });
-                setSpeed('');
-                setEta('');
-
-                blob = await muxToMp4({
-                    videoData,
-                    audioData,
-                    onProgress: setProgress,
-                });
-            } catch (browserError) {
-                // In-browser merging can be stopped by things the page cannot
-                // fix: a stream the browser could not fetch, a codec the mp4
-                // muxer refuses, or a video too large for wasm memory. The
-                // server pipeline can always finish it, so use that rather
-                // than failing the download (and stalling the playlist).
-                const reason = browserError.code === TOO_LARGE
-                    ? 'too large for the browser'
-                    : browserError.message;
-                console.warn('[download] browser pipeline failed, merging on the server:', browserError);
-                setNotice(`Browser merge failed (${reason}) - the server finished this one.`);
+            if (browserBytes > MAX_BROWSER_BYTES) {
+                console.info(`[download] ${formatBytes(browserBytes)} exceeds the ${formatBytes(MAX_BROWSER_BYTES)} browser limit; using the server`);
+                setNotice(`This video is ${formatBytes(browserBytes)} - over the ${formatBytes(MAX_BROWSER_BYTES)} browser merge limit, so the server downloaded and merged it.`);
 
                 blob = await downloadOnServer({
                     videoItag: preferredVideoFormat.itag,
                     audioItag: preferredAudioFormat.itag,
                 });
+            } else {
+                try {
+                    setProgressText("Downloading video + audio...");
+                    const { videoData, audioData } = await downloadMedia({
+                        videoUrl: preferredVideoFormat.url,
+                        audioUrl: preferredAudioFormat.url,
+                        videoSize: preferredVideoFormat.filesizeBytes,
+                        audioSize: preferredAudioFormat.filesizeBytes,
+                        onProgress: ({ percent, downloaded, total, speed: rate, eta }) => {
+                            setProgress(percent);
+                            setSize({ downloaded, total });
+                            setSpeed(rate);
+                            setEta(eta);
+                        },
+                    });
+
+                    setProgressText("Merging video and audio...");
+                    setProgress(0);
+                    setSize({ downloaded: '', total: '' });
+                    setSpeed('');
+                    setEta('');
+
+                    blob = await muxToMp4({
+                        videoData,
+                        audioData,
+                        onProgress: setProgress,
+                    });
+                } catch (browserError) {
+                    // In-browser merging can be stopped by things the page
+                    // cannot fix: a stream the browser could not fetch, a codec
+                    // the mp4 muxer refuses, or a video too large for wasm
+                    // memory. The server pipeline can always finish it, so use
+                    // that rather than failing the download (and stalling the
+                    // playlist).
+                    const tooLarge = browserError.code === TOO_LARGE;
+                    if (tooLarge) {
+                        console.info('[download] over the browser size limit; using the server:', browserError.message);
+                    } else {
+                        console.warn('[download] browser pipeline failed, merging on the server:', browserError);
+                    }
+                    setNotice(tooLarge
+                        ? `${browserError.message} - the server downloaded and merged it.`
+                        : `Browser merge failed (${browserError.message}) - the server finished this one.`);
+
+                    blob = await downloadOnServer({
+                        videoItag: preferredVideoFormat.itag,
+                        audioItag: preferredAudioFormat.itag,
+                    });
+                }
             }
 
             setProgressText("Saving file...");
