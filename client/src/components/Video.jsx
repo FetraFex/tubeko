@@ -288,9 +288,9 @@ const Video = forwardRef(({ title, thumbnail, videoId, onComplete, onQueueAfter 
                 <div className='w-full'>
                     <h3 className="text-white">{progressText}</h3>
                     <div className='bg-[#636363] h-[6px] relative'>
-                        <div className="relative shadow-[0_4px_12px_#00d4ff80]" style={{
+                        <div className="relative shadow-[0_4px_12px_#72ffce80]" style={{
                             width: `${progress}%`,
-                            background: '#00d4ff',
+                            background: '#72ffce',
                             height: '100%',
                             transition: 'width 0.2s ease-in-out'
                         }}>

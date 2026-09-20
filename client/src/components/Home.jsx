@@ -169,8 +169,8 @@ const Home = () => {
                 >
                     <defs>
                         <radialGradient id="blob-gradient-a" cx="50%" cy="50%" r="50%">
-                            <stop offset="0%" stopColor="#0e5f8a" />
-                            <stop offset="100%" stopColor="#0b3d5c77" />
+                            <stop offset="0%" stopColor="#0e6b4f" />
+                            <stop offset="100%" stopColor="#0b3f2c77" />
                         </radialGradient>
                     </defs>
                     <motion.path
@@ -203,8 +203,8 @@ const Home = () => {
                 >
                     <defs>
                         <radialGradient id="blob-gradient-b" cx="50%" cy="50%" r="50%">
-                            <stop offset="0%" stopColor="#7fe9ff" />
-                            <stop offset="100%" stopColor="#0a84ff" />
+                            <stop offset="0%" stopColor="#7fe9c4" />
+                            <stop offset="100%" stopColor="#0abf72" />
                         </radialGradient>
                     </defs>
                     <motion.path
@@ -237,8 +237,8 @@ const Home = () => {
                 >
                     <defs>
                         <radialGradient id="blob-gradient-c" cx="50%" cy="50%" r="50%">
-                            <stop offset="0%" stopColor="#7fe9ff" />
-                            <stop offset="100%" stopColor="#0a84ff" />
+                            <stop offset="0%" stopColor="#7fe9c4" />
+                            <stop offset="100%" stopColor="#0abf72" />
                         </radialGradient>
                     </defs>
                     <motion.path
@@ -267,7 +267,7 @@ const Home = () => {
                 <div className='absolute inset-0 z-[45] pointer-events-none hero-scrim'></div>
                 <div className='absolute backdrop-blur-4xl top-0 z-40 left-0 w-full h-full'></div>
 
-                <p className='text-white z-50'>{dictionary[language].stream[0]} <span className='px-2 py-1 bg-white bg-opacity-20 rounded-full'><FontAwesomeIcon color='#00d4ff' icon={faDownload} /> {dictionary[language].stream[1]}</span></p>
+                <p className='text-white z-50'>{dictionary[language].stream[0]} <span className='px-2 py-1 bg-white bg-opacity-20 rounded-full'><FontAwesomeIcon color='#72ffce' icon={faDownload} /> {dictionary[language].stream[1]}</span></p>
                 <div className='z-50 w-full justify-center items-center flex flex-col space-y-6 px-2'>
                     <h1 className='text-3xl xl:text-6xl lg:text-4xl font-bold gradient-text'>{dictionary[language].headline[0]}<br />{dictionary[language].headline[1]}</h1>
                     <div className='flex bg-white xl:w-7/12 w-full sm:w-10/12 lg:w-8/12 rounded-full'>
@@ -284,7 +284,7 @@ const Home = () => {
                         {isLoading && <BeatLoader color="#fff" size={10} />}
                     </div>
                     {!isLoading && errorMessage && (
-                        <p className="z-50 max-w-2xl text-cyan-200 bg-black/40 rounded-lg px-4 py-2">
+                        <p className="z-50 max-w-2xl text-emerald-200 bg-black/40 rounded-lg px-4 py-2">
                             {errorMessage}
                         </p>
                     )}
@@ -303,7 +303,7 @@ const Home = () => {
                         </div>
                     </div>
                     <div className='flex items-center space-x-1 text-white'>
-                        <p><span className="font-medium">{ isMobileOrTablet?  dictionary[language].swipe : dictionary[language].scroll }</span> {dictionary[language].explore }</p><FontAwesomeIcon color='#00d4ff' icon={faArrowDown} />
+                        <p><span className="font-medium">{ isMobileOrTablet?  dictionary[language].swipe : dictionary[language].scroll }</span> {dictionary[language].explore }</p><FontAwesomeIcon color='#72ffce' icon={faArrowDown} />
                     </div>
                 </div>
                 {sparkles.map((_, index) => (
