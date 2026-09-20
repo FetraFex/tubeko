@@ -29,6 +29,3 @@ dist-ssr
 *.sw?
 client/node_modules/*
 server/node_modules/*
-.gitignore
-../client/*
-../client
