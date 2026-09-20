@@ -1,0 +1,21 @@
+@font-face {
+    font-family: "Nunito";
+    src: url("/font/Nunito_Sans/static/NunitoSans_10pt-Medium.ttf") format("truetype");
+    font-weight: normal;
+    font-style: normal;
+}
+
+@font-face {
+    font-family: "Breathney";
+    src: url("/font/breathney/Breathney_Demo.ttf") format("truetype");
+}
+
+@font-face{
+    font-family: "MisterGrape";
+    src: url("/font/mister_grape/Mister_Grape.otf") format("opentype");
+}
+
+@font-face {
+    font-family: "Sinera";
+    src: url("/font/sinera/Sinera.ttf") format("truetype");
+}
