@@ -53,7 +53,7 @@ const Media = () => {
                             repeatType: "loop",
                         }}
                     >
-                        <FontAwesomeIcon icon={mediaIcons[indexValue]} color='white' />
+                        <FontAwesomeIcon icon={mediaIcons[indexValue]} color='#72ffce' />
                     </motion.div>
                 )
                 )}
@@ -77,7 +77,7 @@ const Media = () => {
                             repeatType: "loop",
                         }}
                     >
-                        <FontAwesomeIcon icon={mediaIcons[indexValue]} color='white' />
+                        <FontAwesomeIcon icon={mediaIcons[indexValue]} color='#72ffce' />
                     </motion.div>
                 ))}
             </div>

@@ -17,7 +17,7 @@ const Navbar = () => {
   return (
     <div className='fixed top-0 w-full bg-transparent text-white xl:px-36 py-3 sm:px-10 lg:px-20 lg:py-6 px-3  flex justify-between items-center z-50'>
       <div className='flex lg:space-x-24'>
-        <h1>Tubeko</h1>
+        <h1 className='text-[#72ffce]'>Tubeko</h1>
         <AnimatePresence>
           {isMenuOpen &&
             <motion.ul initial={{ x: "100%", opacity: 0 }} animate={{ x: "0", opacity: 1 }} exit={{ x: "100%", opacity: 0 }} className={`xl:flex gap-8 absolute xl:relative w-full top-full bg-black xl:bg-transparent left-0 px-3 h-screen xl:h-auto space-y-4 xl:space-y-0 text-end`}>
@@ -54,7 +54,7 @@ const Navbar = () => {
         </div>
         <div className='flex text-black items-center space-x-1 bg-white rounded-xl px-2 py-2'>
           <h4 className='font-medium'>{dictionary[language].donate}</h4>
-          <FontAwesomeIcon className="text-pink-500" icon={faHeart} />
+          <FontAwesomeIcon className="text-[#16b98c]" icon={faHeart} />
         </div>
       </div>
     </div>

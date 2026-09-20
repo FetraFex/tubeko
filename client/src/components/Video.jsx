@@ -313,10 +313,10 @@ const Video = forwardRef(({ title, thumbnail, videoId, onComplete, onQueueAfter 
                 </div>
                 <div className="flex gap-x-3">
                     <button
-                        className="text-black font-bold py-2 flex-1 rounded-lg hover:bg-green-300 bg-green-400 transition-all duration-300"
+                        className="text-black font-bold py-2 flex-1 rounded-lg hover:bg-[#a7ffe2] bg-[#72ffce] transition-all duration-300"
                         onClick={handleAudioDownload}>Download MP3</button>
                     <button
-                        className="text-black font-bold py-2 flex-1 rounded-lg hover:bg-green-300 bg-green-400 transition-all duration-300"
+                        className="text-black font-bold py-2 flex-1 rounded-lg hover:bg-[#a7ffe2] bg-[#72ffce] transition-all duration-300"
                         onClick={() => onQueueAfter()}>Download MP4</button>
                 </div>
             </div>

@@ -65,7 +65,7 @@
     left: -7px;
     right: -7px;
     bottom: -7px;
-    background: rgb(255, 255, 255, 1);
+    background: rgb(114, 255, 206);
     border-radius: 50%;
     filter: blur(10px);
     z-index: -1;
@@ -100,7 +100,7 @@
   }
 
   .hero-scrim {
-    background: radial-gradient(ellipse 68% 45% at 50% 50%, rgba(4, 9, 17, 0.95) 0%, rgba(4, 9, 17, 0.7) 62%, rgba(4, 9, 17, 0) 100%);
+    background: radial-gradient(ellipse 68% 45% at 50% 50%, rgba(4, 17, 13, 0.95) 0%, rgba(4, 17, 13, 0.7) 62%, rgba(4, 17, 13, 0) 100%);
   }
 
 }

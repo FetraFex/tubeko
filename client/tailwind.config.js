@@ -20,7 +20,7 @@ export default {
         '4xl' : '70px'
       },
       boxShadow: {
-        'intense' : '0px 0px 10px rgba(255, 255, 255, 1)'
+        'intense' : '0px 0px 10px rgba(114, 255, 206, 1)'
       }
     },
   },

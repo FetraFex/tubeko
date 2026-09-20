@@ -277,19 +277,19 @@ const Home = () => {
                         <div className='py-4 w-1/12 rounded-e-full flex justify-center'><FontAwesomeIcon color="#000" icon={faClose} className='text-lg xl:text-2xl' /></div>
                     </div>
                     <div className='flex space-x-4'>
-                        <button onClick={handleFetchVideos} className='bg-white text-black hover:scale-105 transition-all duration-200 pl-4 pr-2 py-1 xl:py-2 rounded-xl font-medium flex justify-between items-center space-x-2'><span>{dictionary[language].button.conversion}</span><FontAwesomeIcon className="bg-green-400 p-2 xl:p-3 rounded-xl text-sm xl:text-base" icon={faArrowRight} /></button>
+                        <button onClick={handleFetchVideos} className='bg-white text-black hover:scale-105 transition-all duration-200 pl-4 pr-2 py-1 xl:py-2 rounded-xl font-medium flex justify-between items-center space-x-2'><span>{dictionary[language].button.conversion}</span><FontAwesomeIcon className="bg-[#72ffce] p-2 xl:p-3 rounded-xl text-sm xl:text-base" icon={faArrowRight} /></button>
                         <button className='bg-transparent text-white px-4 rounded-xl font-medium border-2'>{dictionary[language].button.quality} <FontAwesomeIcon icon={faChevronDown} /></button>
                     </div>
                     <div className="h-4 flex items-center">
                         {isLoading && <BeatLoader color="#fff" size={10} />}
                     </div>
                     {!isLoading && errorMessage && (
-                        <p className="z-50 max-w-2xl text-emerald-200 bg-black/40 rounded-lg px-4 py-2">
+                        <p className="z-50 max-w-2xl text-[#a7ffe2] bg-black/40 rounded-lg px-4 py-2">
                             {errorMessage}
                         </p>
                     )}
                     {videos.length && (<div>
-                        <button onClick={startDownload} className="rounded-lg hover:bg-green-300 transition-all duration-300 bg-green-400 px-8 py-2 text-black font-medium text-lg">Start Download</button>
+                        <button onClick={startDownload} className="rounded-lg hover:bg-[#a7ffe2] transition-all duration-300 bg-[#72ffce] px-8 py-2 text-black font-medium text-lg">Start Download</button>
                     </div>)}
                 </div>
                 <div className='absolute z-50 bottom-8 w-full flex justify-between xl:px-36 px-3 sm:px-10 lg:px-20'>

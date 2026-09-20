@@ -13,7 +13,7 @@ const Sparkles = ({ direction }) => {
     if (direction === "up") {
         return (
             <motion.div
-                className="w-1 h-1 blurry-border shadow-intense shadow-white bg-white absolute z-50"
+                className="w-1 h-1 blurry-border shadow-intense bg-[#72ffce] absolute z-50"
                 initial={{ x: initialX, y: initialY }}
                 animate={{
                     x: [initialX - 64, initialX - 60, initialX - 68, initialX - 120, initialX - 170], 
@@ -32,7 +32,7 @@ const Sparkles = ({ direction }) => {
     } else {
         return (
             <motion.div
-                className="w-1 h-1 blurry-border shadow-intense shadow-white bg-white absolute z-50"
+                className="w-1 h-1 blurry-border shadow-intense bg-[#72ffce] absolute z-50"
                 initial={{ x: initialX + 270, y: initialY }} 
                 animate={{
                     x: [initialX + 64 + 270, initialX + 60 + 270, initialX + 68 + 270, initialX + 120 + 270, initialX + 170 + 270], // Wiggle effect in x-axis
