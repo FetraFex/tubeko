@@ -17,7 +17,7 @@ const Navbar = () => {
   return (
     <div className='fixed top-0 w-full bg-transparent text-white xl:px-36 py-3 sm:px-10 lg:px-20 lg:py-6 px-3  flex justify-between items-center z-50'>
       <div className='flex lg:space-x-24'>
-        <h1 className='text-[#72ffce]'>Tubeko</h1>
+        <img src='/images/tubeko-lg.png' alt='Tubeko' className='h-12 xl:h-14 w-auto' />
         <AnimatePresence>
           {isMenuOpen &&
             <motion.ul initial={{ x: "100%", opacity: 0 }} animate={{ x: "0", opacity: 1 }} exit={{ x: "100%", opacity: 0 }} className={`xl:flex gap-8 absolute xl:relative w-full top-full bg-black xl:bg-transparent left-0 px-3 h-screen xl:h-auto space-y-4 xl:space-y-0 text-end`}>
