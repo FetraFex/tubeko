@@ -1,11 +1,11 @@
-import { faArrowDown, faArrowRight, faChevronDown, faDownload, faX } from '@fortawesome/free-solid-svg-icons'
+import { faArrowDown, faArrowRight, faCheck, faChevronDown, faDownload, faX } from '@fortawesome/free-solid-svg-icons'
 import { faInstagram, faFacebook, faWhatsapp, faTwitter, faXTwitter } from "@fortawesome/free-brands-svg-icons";
 import { faClose } from '@fortawesome/free-solid-svg-icons/faClose'
 import { faSearch } from '@fortawesome/free-solid-svg-icons/faSearch'
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome'
 import React, { useEffect, useState, useRef } from 'react'
 import axios from "axios"
-import { motion } from "framer-motion";
+import { AnimatePresence, motion } from "framer-motion";
 import Sparkles from './Sparkles'
 import Media from './Media';
 import { ClipLoader, DotLoader, CircleLoader, BeatLoader } from "react-spinners";
@@ -13,6 +13,8 @@ import Video from './Video';
 import { useMediaQuery } from 'react-responsive';
 import { useLanguage } from '../Context/LanguageContext';
 import dictionary from '../Context/Dictionnary'
+import { QUALITY_OPTIONS, DEFAULT_QUALITY, qualityOption } from '../lib/quality'
+import { useDismissOnOutsideClick } from '../lib/useDismissOnOutsideClick'
 
 const Home = () => {
     const isMobileOrTablet = useMediaQuery({query: "(max-width: 1280px)"})
@@ -27,6 +29,13 @@ const Home = () => {
     const [isLoading, setIsLoading] = useState(false);
     const [videos, setVideos] = useState([])
     const [errorMessage, setErrorMessage] = useState("")
+
+    // Download quality: chosen in the hero, applied to every video below.
+    const [quality, setQuality] = useState(DEFAULT_QUALITY)
+    const [isQualityOpen, setIsQualityOpen] = useState(false)
+    const qualityMenuRef = useRef(null)
+
+    useDismissOnOutsideClick(qualityMenuRef, isQualityOpen, () => setIsQualityOpen(false))
 
       const { language } = useLanguage()
 
@@ -269,16 +278,71 @@ const Home = () => {
 
                 <p className='text-white z-50'>{dictionary[language].stream[0]} <span className='px-2 py-1 bg-white bg-opacity-20 rounded-full'><FontAwesomeIcon color='#72ffce' icon={faDownload} /> {dictionary[language].stream[1]}</span></p>
                 <div className='z-50 w-full justify-center items-center flex flex-col space-y-6 px-2'>
-                    <h1 className='text-3xl xl:text-6xl lg:text-4xl font-bold gradient-text'>{dictionary[language].headline[0]}<br />{dictionary[language].headline[1]}</h1>
-                    <div className='flex bg-white xl:w-7/12 w-full sm:w-10/12 lg:w-8/12 rounded-full'>
-                        <div className='py-4 w-1/12 rounded-s-full flex justify-center'><FontAwesomeIcon icon={faSearch} color="#000" className='xl:text-2xl text-lg' /></div>
-                        <div className='w-10/12'>
-                            <input onChange={(e) => setInputUrl(e.target.value)} type="text" className='z-50 h-full text-black w-full px-2 xl:px-5 text-sm xl:text-lg' placeholder={`${dictionary[language].placeholder} 😉`} /></div>
-                        <div className='py-4 w-1/12 rounded-e-full flex justify-center'><FontAwesomeIcon color="#000" icon={faClose} className='text-lg xl:text-2xl' /></div>
+                    <h1 className='text-3xl xl:text-6xl lg:text-4xl font-bold gradient-text hero-title-glow'>{dictionary[language].headline[0]}<br />{dictionary[language].headline[1]}</h1>
+                    <div className='flex items-center gap-1 bg-white xl:w-7/12 w-full sm:w-10/12 lg:w-8/12 rounded-full p-1.5 pl-2 pr-2.5 ring-1 ring-white/25 shadow-lg shadow-black/30 transition-shadow duration-300 focus-within:ring-2 focus-within:ring-[#72ffce]/60 focus-within:shadow-[0_0_45px_-8px_rgba(114,255,206,0.6)]'>
+                        <div className='flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-black/5'>
+                            <FontAwesomeIcon icon={faSearch} color="#000" className='text-lg xl:text-xl opacity-60' />
+                        </div>
+                        <input
+                            value={inputUrl}
+                            onChange={(e) => setInputUrl(e.target.value)}
+                            type="text"
+                            className='z-50 h-11 flex-1 min-w-0 bg-transparent px-2 xl:px-3 text-black text-sm xl:text-lg outline-none placeholder:text-black/40'
+                            placeholder={`${dictionary[language].placeholder} 😉`}
+                        />
+                        <button
+                            type='button'
+                            onClick={() => setInputUrl("")}
+                            aria-label='Clear the pasted link'
+                            className='flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-black/40 transition-colors duration-150 hover:bg-black/5 hover:text-black/70'
+                        >
+                            <FontAwesomeIcon color="#000" icon={faClose} className='text-base xl:text-lg opacity-60' />
+                        </button>
                     </div>
-                    <div className='flex space-x-4'>
-                        <button onClick={handleFetchVideos} className='bg-white text-black hover:scale-105 transition-all duration-200 pl-4 pr-2 py-1 xl:py-2 rounded-xl font-medium flex justify-between items-center space-x-2'><span>{dictionary[language].button.conversion}</span><FontAwesomeIcon className="bg-[#72ffce] p-2 xl:p-3 rounded-xl text-sm xl:text-base" icon={faArrowRight} /></button>
-                        <button className='bg-transparent text-white px-4 rounded-xl font-medium border-2'>{dictionary[language].button.quality} <FontAwesomeIcon icon={faChevronDown} /></button>
+                    <div className='flex items-stretch space-x-4'>
+                        <button onClick={handleFetchVideos} className='bg-white text-black hover:scale-105 transition-all duration-200 pl-4 pr-2 py-1 xl:py-2 rounded-xl font-medium flex justify-between items-center space-x-2'>
+                            <span>{dictionary[language].button.conversion}</span>
+                            {/* A fixed-size, flex-centred badge rather than padding on the SVG: the
+                                icon's own aspect ratio made the padded background taller than it was
+                                wide, so the mint chip never matched the button's rounded shape. */}
+                            <span className='flex h-7 w-7 xl:h-9 xl:w-9 shrink-0 items-center justify-center rounded-full bg-[#72ffce]'>
+                                <FontAwesomeIcon icon={faArrowRight} className='text-xs xl:text-sm' />
+                            </span>
+                        </button>
+                        <div ref={qualityMenuRef} className='relative'>
+                            <button
+                                type='button'
+                                onClick={() => setIsQualityOpen(!isQualityOpen)}
+                                aria-expanded={isQualityOpen}
+                                className='flex h-full cursor-pointer items-center gap-2 rounded-xl border-2 px-4 font-medium text-white transition-colors duration-200 hover:border-[#72ffce]/60 hover:text-[#a7ffe2]'
+                            >
+                                <span>{dictionary[language].button.quality}</span>
+                                <span className='text-[#a7ffe2]'>{qualityOption(quality).label}</span>
+                                <FontAwesomeIcon icon={faChevronDown} className={`text-xs transition-transform duration-200 ${isQualityOpen ? 'rotate-180' : ''}`} />
+                            </button>
+                            <AnimatePresence>
+                                {isQualityOpen &&
+                                    <motion.div
+                                        initial={{ y: '-6px', opacity: 0, scale: 0.97 }}
+                                        animate={{ y: '0', opacity: 1, scale: 1 }}
+                                        exit={{ y: '-6px', opacity: 0, scale: 0.97 }}
+                                        transition={{ duration: 0.16, ease: 'easeOut' }}
+                                        className='absolute right-0 top-full z-50 mt-2 w-48 overflow-hidden rounded-2xl border border-white/10 bg-[#08130f]/90 p-1.5 shadow-2xl shadow-black/60 backdrop-blur-xl'
+                                    >
+                                        {QUALITY_OPTIONS.map((option) => (
+                                            <button
+                                                key={option.value}
+                                                type='button'
+                                                onClick={() => { setQuality(option.value); setIsQualityOpen(false) }}
+                                                className={`flex w-full cursor-pointer items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm transition-colors duration-150 ${quality === option.value ? 'bg-[#72ffce]/15 text-[#a7ffe2]' : 'text-white/75 hover:bg-white/10 hover:text-white'}`}
+                                            >
+                                                <span className='flex-1'>{option.label}</span>
+                                                {quality === option.value && <FontAwesomeIcon icon={faCheck} className='text-xs' />}
+                                            </button>
+                                        ))}
+                                    </motion.div>}
+                            </AnimatePresence>
+                        </div>
                     </div>
                     <div className="h-4 flex items-center">
                         {isLoading && <BeatLoader color="#fff" size={10} />}
@@ -288,9 +352,26 @@ const Home = () => {
                             {errorMessage}
                         </p>
                     )}
-                    {videos.length && (<div>
-                        <button onClick={startDownload} className="rounded-lg hover:bg-[#a7ffe2] transition-all duration-300 bg-[#72ffce] px-8 py-2 text-black font-medium text-lg">Start Download</button>
-                    </div>)}
+                    {videos.length > 0 && (
+                        <div className='w-full flex flex-col items-center gap-y-5'>
+                            <button onClick={startDownload} className="rounded-lg hover:bg-[#a7ffe2] transition-all duration-300 bg-[#72ffce] px-8 py-2 text-black font-medium text-lg">Start Download</button>
+                            {/* Results sit in the same column as the buttons, so they land directly
+                                under them. Capped + scrollable so a long playlist can't push the
+                                hero past the viewport its section locks with overflow-hidden. */}
+                            <div className='w-full lg:w-2/3 max-h-[38vh] overflow-y-auto flex custom-scrollbar flex-col gap-y-6 pb-2'>
+                                {videos.map((video, index) => (
+                                    <Video
+                                        key={index}
+                                        ref={(el) => (videoRefs.current[index] = el)}
+                                        onComplete={handleComplete}
+                                        title={video.title} thumbnail={video.thumbnail} videoId={video.videoId}
+                                        quality={quality}
+                                        onQueueAfter={() => startDownloadsFromIndex(index)}
+                                    />
+                                ))}
+                            </div>
+                        </div>
+                    )}
                 </div>
                 <div className='absolute z-50 bottom-8 w-full flex justify-between xl:px-36 px-3 sm:px-10 lg:px-20'>
                     <div className="flex gap-2">
@@ -313,23 +394,6 @@ const Home = () => {
                     <Sparkles key={index} direction="down" />
                 ))}
                 <Media />
-            </div>
-            <div className="bg-default-gradient w-full flex justify-center">
-                <div className='lg:w-1/2 max-h-[85vh] overflow-y-auto flex custom-scrollbar flex-col gap-y-8 p-10'>
-                    {videos.length === 0 ? (
-                        <p className="text-white">{errorMessage || "No videos found."}</p>
-                    ) : (
-                        videos.map((video, index) => (
-                            <Video
-                                key={index}
-                                ref={(el) => (videoRefs.current[index] = el)}
-                                onComplete={handleComplete}
-                                title={video.title} thumbnail={video.thumbnail} videoId={video.videoId}
-                                onQueueAfter={() => startDownloadsFromIndex(index)}
-                            />
-                        ))
-                    )}
-                </div>
             </div>
         </div>
     )

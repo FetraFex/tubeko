@@ -12,6 +12,7 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 const fileUpload = require('express-fileupload');
+const { resolveDownloadFormats } = require('./quality');
 
 // Download Endpoint
 const activeDownloads = new Map(); // Track active downloads
@@ -23,7 +24,12 @@ const PORT = process.env.PORT || 3000
 // only read it (needed for download progress) if it is explicitly exposed.
 app.use(cors({
   origin: ['http://localhost:5173', 'http://localhost:5174'],
-  exposedHeaders: ['Content-Length', 'Content-Range', 'Accept-Ranges'],
+  exposedHeaders: [
+    'Content-Length', 'Content-Range', 'Accept-Ranges',
+    // /download/full reports which quality it actually used when it had to
+    // resolve formats itself; the client can only read that if it is exposed.
+    'X-Delivered-Quality', 'X-Delivered-Itags',
+  ],
 }));
 app.use(fileUpload());
 ffmpeg.setFfmpegPath(ffmpegPath);
@@ -452,9 +458,11 @@ app.get('/videoInfo', async (req, res) => {
  * over the existing SSE /download/progress/:id channel.
  */
 app.get('/download/full', async (req, res) => {
-  const { url, videoItag, audioItag, id } = req.query;
-  if (!url || !videoItag || !audioItag) {
-    return res.status(400).json({ error: 'url, videoItag, and audioItag are required' });
+  const { url, videoItag, audioItag, id, quality } = req.query;
+  // Either the caller names the streams (the client already resolved them) or it
+  // names a quality and lets this endpoint resolve them itself.
+  if (!url || (!quality && (!videoItag || !audioItag))) {
+    return res.status(400).json({ error: 'url, and either a quality or both itags, are required' });
   }
 
   const downloadId = id || Math.random().toString(36).substring(7);
@@ -551,20 +559,83 @@ app.get('/download/full', async (req, res) => {
     }
   };
 
-  try {
-    // 1. Download video to temp file
-    broadcast({ type: 'phase', phase: 'video' });
-    await runToFile([url, '-f', videoItag], videoPath, 'video');
+  // Ask yt-dlp for this video's formats and resolve the requested quality
+  // against them. Only reached when the itags the client sent are unusable.
+  const resolveFromQuality = async () => {
+    const info = await runYtDlpCommand([url]);
+    const formats = Array.isArray(info?.formats) ? info.formats : [];
+    return resolveDownloadFormats(formats, quality);
+  };
 
-    // 2. Download audio to temp file
-    broadcast({ type: 'phase', phase: 'audio' });
-    await runToFile([url, '-f', audioItag], audioPath, 'audio');
+  // Set once this endpoint resolves anything itself, so the response can say
+  // which quality it ended up delivering.
+  let delivered = null;
+
+  try {
+    let videoStream = videoItag;
+    let audioStream = audioItag;
+
+    // No itags at all: the server owns the choice from the start.
+    if (!videoStream || !audioStream) {
+      const resolved = await resolveFromQuality();
+      if (!resolved.video.itag) {
+        throw new Error('No downloadable video format was found for this link');
+      }
+      videoStream = resolved.video.itag;
+      audioStream = resolved.audio.itag || 'bestaudio';
+      delivered = { quality: resolved.video.label, itags: `${videoStream}+${audioStream}` };
+    }
+
+    // 1 + 2. Download video, then audio, to temp files
+    const fetchStreams = async () => {
+      broadcast({ type: 'phase', phase: 'video' });
+      await runToFile([url, '-f', videoStream], videoPath, 'video');
+
+      broadcast({ type: 'phase', phase: 'audio' });
+      await runToFile([url, '-f', audioStream], audioPath, 'audio');
+    };
+
+    try {
+      await fetchStreams();
+    } catch (firstError) {
+      // A media link can expire, or a format can be dropped, between the
+      // metadata request that chose these itags and the download itself.
+      // Re-resolve from the requested quality and retry once rather than
+      // failing the whole download. If somehow nothing matches either, the
+      // original error is what the caller sees.
+      if (!quality) throw firstError;
+
+      console.warn(
+        `[download/full] itags ${videoStream}+${audioStream} unusable (${firstError.message}); re-resolving for ${quality}`
+      );
+
+      const resolved = await resolveFromQuality();
+      if (!resolved.video.itag) throw firstError;
+
+      videoStream = resolved.video.itag;
+      audioStream = resolved.audio.itag || 'bestaudio';
+      delivered = { quality: resolved.video.label, itags: `${videoStream}+${audioStream}` };
+
+      // A partly written file from the failed attempt would be resumed rather
+      // than replaced, so start this one clean.
+      for (const file of [videoPath, audioPath]) {
+        try { fs.unlinkSync(file); } catch (_) { /* never created */ }
+      }
+
+      await fetchStreams();
+    }
 
     // 3. Merge with ffmpeg
     await merge(videoPath, audioPath, mergedPath);
 
     // 4. Stream the merged file back
     const stat = fs.statSync(mergedPath);
+    // Has to be set before the body starts arriving: the client reads these to
+    // tell a fulfilled quality request from a fallback.
+    if (delivered) {
+      res.setHeader('X-Delivered-Quality', delivered.quality);
+      res.setHeader('X-Delivered-Itags', delivered.itags);
+    }
     res.setHeader('Content-Type', 'video/mp4');
     res.setHeader('Content-Length', stat.size);
     res.setHeader('Content-Disposition', 'attachment; filename="video.mp4"');

@@ -20,19 +20,9 @@ export const usableFormats = (formats) => (formats || []).filter(isDirectMedia)
 // "720p" / "1080p" -> 720 / 1080. Anything unparseable ranks last.
 const height = (format) => parseInt(format.quality) || 0
 
-// Prefer 720p (itag 136), otherwise the highest resolution on offer.
-export const selectVideoFormat = (formats) => {
-  const direct = usableFormats(formats)
-
-  const preferred = direct.find((format) => format.quality === '720p' && format.itag == '136')
-  if (preferred) return preferred
-
-  const videoFormats = direct.filter((f) => f.type.includes('video'))
-  if (videoFormats.length === 0) return null
-
-  return videoFormats.reduce((highest, current) =>
-    height(current) > height(highest) ? current : highest, videoFormats[0])
-}
+// Which video format to fetch is no longer decided here: it is driven by the
+// quality the user picked, and the resolution plus its fallbacks live in
+// quality.js (resolveVideoQuality).
 
 // Prefer ~128kbps audio, otherwise the highest bitrate on offer.
 export const selectAudioFormat = (formats) => {

@@ -12,13 +12,13 @@ import {
 } from '../lib/browserDownload';
 import {
     selectAudioFormat,
-    selectVideoFormat,
     selectVideoFormatThatFits,
     totalBytes,
 } from '../lib/formatSelection';
+import { fallbackNotice, qualityOption, resolveVideoQuality } from '../lib/quality';
 
 
-const Video = forwardRef(({ title, thumbnail, videoId, onComplete, onQueueAfter }, ref) => {
+const Video = forwardRef(({ title, thumbnail, videoId, quality, onComplete, onQueueAfter }, ref) => {
 
 
     /***Download information */
@@ -33,6 +33,10 @@ const Video = forwardRef(({ title, thumbnail, videoId, onComplete, onQueueAfter 
     // Non-fatal information, e.g. "the browser could not merge this one, the
     // server finished it instead".
     const [notice, setNotice] = useState('');
+    // Reasons accumulate instead of overwriting: a quality fallback and a
+    // browser-size fallback can both apply to the same download, and showing
+    // only the last one hides the other.
+    const addNotice = (text) => setNotice((prev) => (prev ? `${prev} ${text}` : text));
     const [downloading, setDownloading] = useState({
         status: false,
         type: '', // 'video', 'audio', or 'merge'
@@ -105,7 +109,15 @@ const Video = forwardRef(({ title, thumbnail, videoId, onComplete, onQueueAfter 
         try {
             // 1. Fetch video metadata to pick formats
             const data = await fetchFormats();
-            let preferredVideoFormat = selectVideoFormat(data.formats);
+
+            // The requested quality decides the starting format; when the video
+            // has nothing at that resolution the resolver reports what it fell
+            // back to, which is surfaced below rather than silently applied.
+            const resolution = resolveVideoQuality(data.formats, quality);
+            let preferredVideoFormat = resolution.format;
+            const qualityFallback = fallbackNotice(resolution);
+            if (qualityFallback) addNotice(qualityFallback);
+
             const preferredAudioFormat = selectAudioFormat(data.formats);
 
             if (!preferredVideoFormat || !preferredAudioFormat) {
@@ -132,11 +144,15 @@ const Video = forwardRef(({ title, thumbnail, videoId, onComplete, onQueueAfter 
             // downloaded and merged here. Only when nothing fits at all does
             // the server take over.
             if (browserBytes > MAX_BROWSER_BYTES) {
-                const smaller = selectVideoFormatThatFits(data.formats, audioBytes, MAX_BROWSER_BYTES);
+                // `below` bounds the search by the quality that was actually
+                // asked for. Without it the size fallback picks the largest
+                // resolution that fits, which can sit *above* the request when
+                // a higher-resolution format happens to encode smaller.
+                const smaller = selectVideoFormatThatFits(data.formats, audioBytes, MAX_BROWSER_BYTES, preferredVideoFormat);
                 if (smaller) {
                     const smallerBytes = totalBytes([smaller, preferredAudioFormat]);
                     console.info(`[download] ${formatBytes(browserBytes)} exceeds the ${formatBytes(MAX_BROWSER_BYTES)} browser limit; downloading ${smaller.quality} (${formatBytes(smallerBytes)}) in the browser instead`);
-                    setNotice(`${formatBytes(browserBytes)} is over the ${formatBytes(MAX_BROWSER_BYTES)} browser merge limit, so this one downloads at ${smaller.quality} (${formatBytes(smallerBytes)}) instead.`);
+                    addNotice(`${formatBytes(browserBytes)} is over the ${formatBytes(MAX_BROWSER_BYTES)} browser merge limit, so this one downloads at ${smaller.quality} (${formatBytes(smallerBytes)}) instead.`);
                     preferredVideoFormat = smaller;
                     browserBytes = smallerBytes;
                 }
@@ -174,7 +190,7 @@ const Video = forwardRef(({ title, thumbnail, videoId, onComplete, onQueueAfter 
 
             if (browserBytes > MAX_BROWSER_BYTES) {
                 console.info(`[download] ${formatBytes(browserBytes)} exceeds the ${formatBytes(MAX_BROWSER_BYTES)} browser limit and nothing smaller fits; using the server`);
-                setNotice(`This video is ${formatBytes(browserBytes)} and no smaller version fits the ${formatBytes(MAX_BROWSER_BYTES)} browser merge limit, so the server downloaded and merged it.`);
+                addNotice(`This video is ${formatBytes(browserBytes)} and no smaller version fits the ${formatBytes(MAX_BROWSER_BYTES)} browser merge limit, so the server downloaded and merged it.`);
 
                 blob = await downloadOnServer({
                     videoItag: preferredVideoFormat.itag,
@@ -219,7 +235,7 @@ const Video = forwardRef(({ title, thumbnail, videoId, onComplete, onQueueAfter 
                         } else {
                             console.warn('[download] browser pipeline failed, merging on the server:', failure);
                         }
-                        setNotice(tooLarge
+                        addNotice(tooLarge
                             ? `${failure.message} and no smaller version fits - the server downloaded and merged it.`
                             : `Browser merge failed (${failure.message}) - the server finished this one.`);
 
@@ -228,7 +244,7 @@ const Video = forwardRef(({ title, thumbnail, videoId, onComplete, onQueueAfter 
                             audioItag: preferredAudioFormat.itag,
                         });
                     } else if (retriedAt) {
-                        setNotice(`This one was too large for the browser, so it downloaded at ${retriedAt} instead.`);
+                        addNotice(`This one was too large for the browser, so it downloaded at ${retriedAt} instead.`);
                     }
                 }
             }
@@ -259,12 +275,21 @@ const Video = forwardRef(({ title, thumbnail, videoId, onComplete, onQueueAfter 
         setSize({ downloaded: '', total: '' });
 
         const response = await fetch(
-            `http://localhost:3000/download/full?url=${encodeURIComponent("https://www.youtube.com/watch?v=" + videoId)}&videoItag=${videoItag}&audioItag=${audioItag}`
+            `http://localhost:3000/download/full?url=${encodeURIComponent("https://www.youtube.com/watch?v=" + videoId)}&videoItag=${videoItag}&audioItag=${audioItag}&quality=${encodeURIComponent(quality)}`
         );
 
         if (!response.ok) {
             const err = await response.json().catch(() => ({ error: 'Download failed' }));
             throw new Error(err.error || 'Download failed');
+        }
+
+        // The server re-resolves the formats itself when the itags it was given
+        // no longer exist, so it reports what it actually delivered. 'best'
+        // names no resolution to miss, so only a specific request is compared.
+        const delivered = response.headers.get('X-Delivered-Quality');
+        const requested = qualityOption(quality);
+        if (delivered && requested.height && delivered !== requested.label) {
+            addNotice(`The server could not use ${requested.label} for this video and delivered ${delivered} instead.`);
         }
 
         setProgressText("Saving file...");

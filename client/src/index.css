@@ -79,6 +79,16 @@
     filter: drop-shadow(0 0 20px rgba(114, 255, 206, 0.6)) drop-shadow(0 4px 8px rgba(0, 0, 0, 0.8));
   }
 
+  /* Neon treatment for the centred hero headline: one tight core plus two wider halos
+     so the mint gradient reads as emissive rather than just tinted. Declared after
+     .gradient-text so it replaces that rule's single-layer glow. */
+  .hero-title-glow {
+    filter: drop-shadow(0 0 10px rgba(114, 255, 206, 0.55))
+            drop-shadow(0 0 35px rgba(114, 255, 206, 0.35))
+            drop-shadow(0 0 80px rgba(22, 185, 140, 0.28))
+            drop-shadow(0 4px 10px rgba(0, 0, 0, 0.8));
+  }
+
   .features-card {
     background: linear-gradient(120deg, #121212, #1f1f1f);
   }
