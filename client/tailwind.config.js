@@ -13,7 +13,9 @@ export default {
         sinera: ["Sinera"]
       },
       backgroundImage: {
-        'custom-gradient': 'linear-gradient(90deg, rgba(14,25,17,1) 9%, rgba(19,34,23,1) 22%, rgba(25,44,32,1) 33%, rgba(33,65,46,1) 63%, rgba(13,22,16,1) 100%)'
+        // The hero's ramp, painted by every section from the hero down to the footer so
+        // the page reads as one continuous background. Three foci with black between them.
+        'default-gradient': 'linear-gradient(90deg, #060B0A 9%, #071210 22%, #091B16 33%, #0C241C 46%, #0E3222 63%, #0C241C 80%, #050806 100%)'
       },
       backdropBlur: {
         '3xl' : '40px',

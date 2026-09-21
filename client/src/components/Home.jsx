@@ -160,7 +160,7 @@ const Home = () => {
 
     return (
         <div>
-            <div className='bg-custom-gradient h-screen  flex flex-col justify-center items-center text-center relative z-0 overflow-hidden '>
+            <div className='bg-default-gradient h-screen  flex flex-col justify-center items-center text-center relative z-0 overflow-hidden '>
                 <svg
                     className="absolute z-0 top-0 right-0 translate-x-1/2"
                     width="800"
@@ -314,7 +314,7 @@ const Home = () => {
                 ))}
                 <Media />
             </div>
-            <div className="bg-custom-gradient w-full flex justify-center">
+            <div className="bg-default-gradient w-full flex justify-center">
                 <div className='lg:w-1/2 max-h-[85vh] overflow-y-auto flex custom-scrollbar flex-col gap-y-8 p-10'>
                     {videos.length === 0 ? (
                         <p className="text-white">{errorMessage || "No videos found."}</p>

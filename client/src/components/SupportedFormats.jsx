@@ -7,7 +7,7 @@ import dictionary from '../Context/Dictionnary'
 const SupportedFormats = () => {
   const { language } = useLanguage()
   return (
-    <div className=" bg-custom-gradient flex pt-10 xl:pt-0">
+    <div className=" bg-default-gradient flex pt-10 xl:pt-0">
       <div className='flex-1 xl:flex justify-center items-center space-x-8 hidden w-full'>
         <div className='text-white text-center'>
           <FontAwesomeIcon icon={faFileAudio} className='text-9xl text-[#72ffce]'/>
