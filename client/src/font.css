@@ -19,3 +19,12 @@
     font-family: "Sinera";
     src: url("/font/sinera/Sinera.ttf") format("truetype");
 }
+
+/* Variable font, wght 100-800 (defaults to 400). The range declaration is what lets
+   font-weight utilities map onto the axis instead of synthesising a faux bold. */
+@font-face {
+    font-family: "Sora";
+    src: url("/font/sora/Sora-VariableFont_wght.ttf") format("truetype");
+    font-weight: 100 800;
+    font-style: normal;
+}

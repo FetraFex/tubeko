@@ -10,7 +10,9 @@ export default {
         nunito: ["Nunito"],
         breathney: ["Breathney"],
         mistergrape: ["MisterGrape"],
-        sinera: ["Sinera"]
+        sinera: ["Sinera"],
+        // Brand wordmark face: contemporary geometric sans, variable 100-800.
+        sora: ["Sora"]
       },
       backgroundImage: {
         // The hero's ramp, painted by every section from the hero down to the footer so
