@@ -50,6 +50,24 @@
   }
 }
 
+/* Spark drift, used by components/Sparkles.jsx. Transform and opacity only, so the
+   browser composites it instead of running it on the main thread, and being a CSS
+   animation it is not restarted when React re-renders the hero. Each particle
+   supplies its own path through --spark-x, --spark-y and --spark-duration. */
+@keyframes spark-up {
+  0%   { transform: translate3d(var(--spark-x), var(--spark-y), 0); opacity: 0; }
+  30%  { transform: translate3d(calc(var(--spark-x) + 4px), calc(var(--spark-y) - 60px), 0); opacity: 1; }
+  60%  { transform: translate3d(calc(var(--spark-x) - 4px), calc(var(--spark-y) - 150px), 0); opacity: 1; }
+  100% { transform: translate3d(calc(var(--spark-x) - 106px), calc(var(--spark-y) - 300px), 0); opacity: 0; }
+}
+
+@keyframes spark-down {
+  0%   { transform: translate3d(var(--spark-x), var(--spark-y), 0); opacity: 0; }
+  30%  { transform: translate3d(calc(var(--spark-x) - 4px), calc(var(--spark-y) + 60px), 0); opacity: 1; }
+  60%  { transform: translate3d(calc(var(--spark-x) + 4px), calc(var(--spark-y) + 150px), 0); opacity: 1; }
+  100% { transform: translate3d(calc(var(--spark-x) + 106px), calc(var(--spark-y) + 300px), 0); opacity: 0; }
+}
+
 /* Firefox */
 .custom-scrollbar {
   scrollbar-width: thin; /* "auto" or "thin" */
@@ -113,4 +131,25 @@
     background: radial-gradient(ellipse 68% 45% at 50% 50%, rgba(4, 17, 13, 0.95) 0%, rgba(4, 17, 13, 0.7) 62%, rgba(4, 17, 13, 0) 100%);
   }
 
+  /* Timings only; the paths live in the spark-up / spark-down keyframes above. */
+  .spark-up,
+  .spark-down {
+    animation-duration: var(--spark-duration, 3s);
+    animation-timing-function: ease-in;
+    animation-iteration-count: infinite;
+  }
+
+  .spark-up {
+    animation-name: spark-up;
+  }
+
+  .spark-down {
+    animation-name: spark-down;
+  }
+
 }
+
+/* Dev note: a utility class added to a .jsx file does not always reach the CSS the
+   dev server serves - the scan refreshes when this file changes or when the dev
+   server restarts. If a new class seems to do nothing, save this file (or restart
+   the dev server) and the stylesheet is rebuilt from the current source. */

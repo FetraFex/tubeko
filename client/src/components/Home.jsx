@@ -3,7 +3,7 @@ import { faInstagram, faFacebook, faWhatsapp, faTwitter, faXTwitter } from "@for
 import { faClose } from '@fortawesome/free-solid-svg-icons/faClose'
 import { faSearch } from '@fortawesome/free-solid-svg-icons/faSearch'
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome'
-import React, { useEffect, useState, useRef } from 'react'
+import React, { useEffect, useLayoutEffect, useState, useRef } from 'react'
 import axios from "axios"
 import { AnimatePresence, motion } from "framer-motion";
 import Sparkles from './Sparkles'
@@ -16,16 +16,22 @@ import dictionary from '../Context/Dictionnary'
 import { QUALITY_OPTIONS, DEFAULT_QUALITY, qualityOption } from '../lib/quality'
 import { useDismissOnOutsideClick } from '../lib/useDismissOnOutsideClick'
 
+// The spark field is built once, at module scope. Because these element objects keep
+// their identity across renders, React skips the whole subtree - which is what stops
+// a re-render of the hero from restarting the drift.
+const SPARK_FIELD = [
+    ...Array.from({ length: 12 }, (_, index) => <Sparkles key={`up-${index}`} direction="up" />),
+    ...Array.from({ length: 12 }, (_, index) => <Sparkles key={`down-${index}`} direction="down" />),
+]
+
 const Home = () => {
     const isMobileOrTablet = useMediaQuery({query: "(max-width: 1280px)"})
-    const sparkles = Array.from({ length: 12 });
     const [currentIndex, setCurrentIndex] = useState(null);
     const videoRefs = useRef([]);
+    const urlInputRef = useRef(null);
 
     const [downloadQueue, setDownloadQueue] = useState([]);
     const [activeDownload, setActiveDownload] = useState(null);
-
-    const [inputUrl, setInputUrl] = useState("");
     const [isLoading, setIsLoading] = useState(false);
     const [videos, setVideos] = useState([])
     const [errorMessage, setErrorMessage] = useState("")
@@ -37,7 +43,98 @@ const Home = () => {
 
     useDismissOnOutsideClick(qualityMenuRef, isQualityOpen, () => setIsQualityOpen(false))
 
-      const { language } = useLanguage()
+    const { language } = useLanguage()
+
+    // The controls (label + headline + input + buttons) are held at the vertical centre
+    // of the first screen by a spacer whose height is measured here. Reading the real
+    // height keeps that hold correct at every breakpoint and in every language, and
+    // because the spacer ignores the results it never moves once a playlist has loaded.
+    const heroIntroRef = useRef(null)
+    const [heroTopSpacer, setHeroTopSpacer] = useState(0)
+
+    // Follow Us + Scroll to explore: fixed to the bottom corners of the *viewport* so
+    // they stay put while the playlist grows the hero. They only exist while the hero
+    // still fills the screen, so they fade out instead of floating over Features/Footer.
+    const heroRef = useRef(null)
+    const [isSocialRowVisible, setIsSocialRowVisible] = useState(true)
+
+    useEffect(() => {
+        const hero = heroRef.current
+        if (!hero) return
+
+        const update = () => {
+            // The hero's end has entered the viewport: nothing but the hero is on screen
+            // below, so the hint would start covering the next section.
+            setIsSocialRowVisible(hero.getBoundingClientRect().bottom >= window.innerHeight - 1)
+        }
+
+        update()
+        window.addEventListener('scroll', update, { passive: true })
+        window.addEventListener('resize', update)
+        // The hero resizes when a playlist (or a thumbnail) loads, which changes whether
+        // the row should still be there.
+        const observer = new ResizeObserver(update)
+        observer.observe(hero)
+
+        return () => {
+            window.removeEventListener('scroll', update)
+            window.removeEventListener('resize', update)
+            observer.disconnect()
+        }
+    }, [])
+
+    useLayoutEffect(() => {
+        const node = heroIntroRef.current
+        if (!node) return
+
+        const measure = () => {
+            const introHeight = node.getBoundingClientRect().height
+            setHeroTopSpacer(Math.max(0, (window.innerHeight - introHeight) / 2))
+        }
+
+        measure()
+        window.addEventListener('resize', measure)
+        // Re-measure when the block itself resizes (breakpoint change, language switch).
+        const observer = new ResizeObserver(measure)
+        observer.observe(node)
+
+        return () => {
+            window.removeEventListener('resize', measure)
+            observer.disconnect()
+        }
+    }, [])
+
+    // The playlist panel shows ten rows and scrolls the rest. Its cap is derived from a
+    // real row instead of the viewport, so the panel is the same size on any screen and
+    // never grows with the playlist.
+    const resultsListRef = useRef(null)
+    const [listMaxHeight, setListMaxHeight] = useState(undefined)
+
+    useLayoutEffect(() => {
+        const list = resultsListRef.current
+        const firstRow = list?.firstElementChild
+        if (!firstRow) {
+            setListMaxHeight(undefined)
+            return
+        }
+
+        const ROWS = 10
+        const GAP_PX = 24 // matches gap-y-6 below
+
+        const update = () => {
+            const rowHeight = firstRow.getBoundingClientRect().height
+            if (!rowHeight) return
+            const next = Math.round(rowHeight * ROWS + GAP_PX * (ROWS - 1))
+            // Ignore sub-pixel churn so the observer cannot feed back into itself.
+            setListMaxHeight(prev => (prev !== undefined && Math.abs(prev - next) < 2 ? prev : next))
+        }
+
+        update()
+        // The first row settles once its thumbnail loads, so keep watching its height.
+        const observer = new ResizeObserver(update)
+        observer.observe(firstRow)
+        return () => observer.disconnect()
+    }, [videos])
 
     // Automatically trigger the download of the first video
     useEffect(() => {
@@ -130,13 +227,17 @@ const Home = () => {
     };
 
     const handleFetchVideos = async () => {
-        if (!inputUrl) return;
+        // Read the field directly instead of from state: keeping the URL out of
+        // component state is what stops every keystroke re-rendering the hero
+        // (and with it the spark field and the background morph).
+        const url = urlInputRef.current?.value.trim() || "";
+        if (!url) return;
         setIsLoading(true);
         setVideos([]);
         setErrorMessage("");
 
         try {
-            const { listId, videoId } = parseYouTubeInput(inputUrl);
+            const { listId, videoId } = parseYouTubeInput(url);
 
             if (listId) {
                 const response = await axios.get(`http://localhost:3000/api/playlist/${listId}`);
@@ -169,7 +270,10 @@ const Home = () => {
 
     return (
         <div>
-            <div className='bg-default-gradient h-screen  flex flex-col justify-center items-center text-center relative z-0 overflow-hidden '>
+            {/* min-h-screen (not h-screen): the hero is allowed to grow past the first
+                screen so a long playlist has room. That pushes whatever follows the hero
+                down the page instead of squeezing the results into the viewport. */}
+            <div ref={heroRef} className='bg-default-gradient min-h-screen flex flex-col items-center text-center relative z-0 overflow-hidden'>
                 <svg
                     className="absolute z-0 top-0 right-0 translate-x-1/2"
                     width="800"
@@ -276,89 +380,110 @@ const Home = () => {
                 <div className='absolute inset-0 z-[45] pointer-events-none hero-scrim'></div>
                 <div className='absolute backdrop-blur-4xl top-0 z-40 left-0 w-full h-full'></div>
 
-                <p className='text-white z-50'>{dictionary[language].stream[0]} <span className='px-2 py-1 bg-white bg-opacity-20 rounded-full'><FontAwesomeIcon color='#72ffce' icon={faDownload} /> {dictionary[language].stream[1]}</span></p>
-                <div className='z-50 w-full justify-center items-center flex flex-col space-y-6 px-2'>
-                    <h1 className='text-3xl xl:text-6xl lg:text-4xl font-bold gradient-text hero-title-glow'>{dictionary[language].headline[0]}<br />{dictionary[language].headline[1]}</h1>
-                    <div className='flex items-center gap-1 bg-white xl:w-7/12 w-full sm:w-10/12 lg:w-8/12 rounded-full p-1.5 pl-2 pr-2.5 ring-1 ring-white/25 shadow-lg shadow-black/30 transition-shadow duration-300 focus-within:ring-2 focus-within:ring-[#72ffce]/60 focus-within:shadow-[0_0_45px_-8px_rgba(114,255,206,0.6)]'>
-                        <div className='flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-black/5'>
-                            <FontAwesomeIcon icon={faSearch} color="#000" className='text-lg xl:text-xl opacity-60' />
-                        </div>
-                        <input
-                            value={inputUrl}
-                            onChange={(e) => setInputUrl(e.target.value)}
-                            type="text"
-                            className='z-50 h-11 flex-1 min-w-0 bg-transparent px-2 xl:px-3 text-black text-sm xl:text-lg outline-none placeholder:text-black/40'
-                            placeholder={`${dictionary[language].placeholder} 😉`}
-                        />
-                        <button
-                            type='button'
-                            onClick={() => setInputUrl("")}
-                            aria-label='Clear the pasted link'
-                            className='flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-black/40 transition-colors duration-150 hover:bg-black/5 hover:text-black/70'
-                        >
-                            <FontAwesomeIcon color="#000" icon={faClose} className='text-base xl:text-lg opacity-60' />
-                        </button>
-                    </div>
-                    <div className='flex items-stretch space-x-4'>
-                        <button onClick={handleFetchVideos} className='bg-white text-black hover:scale-105 transition-all duration-200 pl-4 pr-2 py-1 xl:py-2 rounded-xl font-medium flex justify-between items-center space-x-2'>
-                            <span>{dictionary[language].button.conversion}</span>
-                            {/* A fixed-size, flex-centred badge rather than padding on the SVG: the
-                                icon's own aspect ratio made the padded background taller than it was
-                                wide, so the mint chip never matched the button's rounded shape. */}
-                            <span className='flex h-7 w-7 xl:h-9 xl:w-9 shrink-0 items-center justify-center rounded-full bg-[#72ffce]'>
-                                <FontAwesomeIcon icon={faArrowRight} className='text-xs xl:text-sm' />
-                            </span>
-                        </button>
-                        <div ref={qualityMenuRef} className='relative'>
+                {/* Holds the controls at the vertical centre of the first screen. Its height
+                    comes from JS so it stays right across breakpoints and languages, and it
+                    ignores the results on purpose - that is what keeps the controls in place
+                    while a long playlist grows the hero downwards. */}
+                <div style={{ height: heroTopSpacer }} aria-hidden='true'></div>
+
+                <div ref={heroIntroRef} className='z-50 w-full flex flex-col items-center'>
+                    <p className='text-white z-50'>{dictionary[language].stream[0]} <span className='px-2 py-1 bg-white bg-opacity-20 rounded-full'><FontAwesomeIcon color='#72ffce' icon={faDownload} /> {dictionary[language].stream[1]}</span></p>
+                    <div className='z-50 w-full justify-center items-center flex flex-col space-y-6 px-2'>
+                        <h1 className='text-3xl xl:text-6xl lg:text-4xl font-bold gradient-text hero-title-glow'>{dictionary[language].headline[0]}<br />{dictionary[language].headline[1]}</h1>
+                        <div className='flex items-center gap-1 bg-white xl:w-7/12 w-full sm:w-10/12 lg:w-8/12 rounded-full p-1.5 pl-2 pr-2.5 ring-1 ring-white/25 shadow-lg shadow-black/30 transition-shadow duration-300 focus-within:ring-2 focus-within:ring-[#72ffce]/60 focus-within:shadow-[0_0_45px_-8px_rgba(114,255,206,0.6)]'>
+                            <div className='flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-black/5'>
+                                <FontAwesomeIcon icon={faSearch} color="#000" className='text-lg xl:text-xl opacity-60' />
+                            </div>
+                            <input
+                                ref={urlInputRef}
+                                defaultValue=""
+                                type="text"
+                                className='z-50 h-11 flex-1 min-w-0 bg-transparent px-2 xl:px-3 text-black text-sm xl:text-lg outline-none placeholder:text-black/40'
+                                placeholder={`${dictionary[language].placeholder} 😉`}
+                            />
                             <button
                                 type='button'
-                                onClick={() => setIsQualityOpen(!isQualityOpen)}
-                                aria-expanded={isQualityOpen}
-                                className='flex h-full cursor-pointer items-center gap-2 rounded-xl border-2 px-4 font-medium text-white transition-colors duration-200 hover:border-[#72ffce]/60 hover:text-[#a7ffe2]'
+                                onClick={() => {
+                                    if (urlInputRef.current) {
+                                        urlInputRef.current.value = "";
+                                        urlInputRef.current.focus();
+                                    }
+                                }}
+                                aria-label='Clear the pasted link'
+                                className='flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-black/40 transition-colors duration-150 hover:bg-black/5 hover:text-black/70'
                             >
-                                <span>{dictionary[language].button.quality}</span>
-                                <span className='text-[#a7ffe2]'>{qualityOption(quality).label}</span>
-                                <FontAwesomeIcon icon={faChevronDown} className={`text-xs transition-transform duration-200 ${isQualityOpen ? 'rotate-180' : ''}`} />
+                                <FontAwesomeIcon color="#000" icon={faClose} className='text-base xl:text-lg opacity-60' />
                             </button>
-                            <AnimatePresence>
-                                {isQualityOpen &&
-                                    <motion.div
-                                        initial={{ y: '-6px', opacity: 0, scale: 0.97 }}
-                                        animate={{ y: '0', opacity: 1, scale: 1 }}
-                                        exit={{ y: '-6px', opacity: 0, scale: 0.97 }}
-                                        transition={{ duration: 0.16, ease: 'easeOut' }}
-                                        className='absolute right-0 top-full z-50 mt-2 w-48 overflow-hidden rounded-2xl border border-white/10 bg-[#08130f]/90 p-1.5 shadow-2xl shadow-black/60 backdrop-blur-xl'
-                                    >
-                                        {QUALITY_OPTIONS.map((option) => (
-                                            <button
-                                                key={option.value}
-                                                type='button'
-                                                onClick={() => { setQuality(option.value); setIsQualityOpen(false) }}
-                                                className={`flex w-full cursor-pointer items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm transition-colors duration-150 ${quality === option.value ? 'bg-[#72ffce]/15 text-[#a7ffe2]' : 'text-white/75 hover:bg-white/10 hover:text-white'}`}
-                                            >
-                                                <span className='flex-1'>{option.label}</span>
-                                                {quality === option.value && <FontAwesomeIcon icon={faCheck} className='text-xs' />}
-                                            </button>
-                                        ))}
-                                    </motion.div>}
-                            </AnimatePresence>
                         </div>
+                        <div className='flex items-stretch space-x-4'>
+                            <button onClick={handleFetchVideos} className='bg-white text-black hover:scale-105 transition-all duration-200 pl-4 pr-2 py-1 xl:py-2 rounded-xl font-medium flex justify-between items-center space-x-2'>
+                                <span>{dictionary[language].button.conversion}</span>
+                                {/* A fixed-size, flex-centred badge rather than padding on the SVG: the
+                                    icon's own aspect ratio made the padded background taller than it was
+                                    wide, so the mint chip never matched the button's rounded shape. */}
+                                <span className='flex h-7 w-7 xl:h-9 xl:w-9 shrink-0 items-center justify-center rounded-full bg-[#72ffce]'>
+                                    <FontAwesomeIcon icon={faArrowRight} className='text-xs xl:text-sm' />
+                                </span>
+                            </button>
+                            <div ref={qualityMenuRef} className='relative'>
+                                <button
+                                    type='button'
+                                    onClick={() => setIsQualityOpen(!isQualityOpen)}
+                                    aria-expanded={isQualityOpen}
+                                    className='flex h-full cursor-pointer items-center gap-2 rounded-xl border-2 px-4 font-medium text-white transition-colors duration-200 hover:border-[#72ffce]/60 hover:text-[#a7ffe2]'
+                                >
+                                    <span>{dictionary[language].button.quality}</span>
+                                    <span className='text-[#a7ffe2]'>{qualityOption(quality).label}</span>
+                                    <FontAwesomeIcon icon={faChevronDown} className={`text-xs transition-transform duration-200 ${isQualityOpen ? 'rotate-180' : ''}`} />
+                                </button>
+                                <AnimatePresence>
+                                    {isQualityOpen &&
+                                        <motion.div
+                                            initial={{ y: '-6px', opacity: 0, scale: 0.97 }}
+                                            animate={{ y: '0', opacity: 1, scale: 1 }}
+                                            exit={{ y: '-6px', opacity: 0, scale: 0.97 }}
+                                            transition={{ duration: 0.16, ease: 'easeOut' }}
+                                            className='absolute right-0 top-full z-50 mt-2 w-48 overflow-hidden rounded-2xl border border-white/10 bg-[#08130f]/90 p-1.5 shadow-2xl shadow-black/60 backdrop-blur-xl'
+                                        >
+                                            {QUALITY_OPTIONS.map((option) => (
+                                                <button
+                                                    key={option.value}
+                                                    type='button'
+                                                    onClick={() => { setQuality(option.value); setIsQualityOpen(false) }}
+                                                    className={`flex w-full cursor-pointer items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm transition-colors duration-150 ${quality === option.value ? 'bg-[#72ffce]/15 text-[#a7ffe2]' : 'text-white/75 hover:bg-white/10 hover:text-white'}`}
+                                                >
+                                                    <span className='flex-1'>{option.label}</span>
+                                                    {quality === option.value && <FontAwesomeIcon icon={faCheck} className='text-xs' />}
+                                                </button>
+                                            ))}
+                                        </motion.div>}
+                                </AnimatePresence>
+                            </div>
+                        </div>
+                        <div className="h-4 flex items-center">
+                            {isLoading && <BeatLoader color="#fff" size={10} />}
+                        </div>
+                        {!isLoading && errorMessage && (
+                            <p className="z-50 max-w-2xl text-[#a7ffe2] bg-black/40 rounded-lg px-4 py-2">
+                                {errorMessage}
+                            </p>
+                        )}
                     </div>
-                    <div className="h-4 flex items-center">
-                        {isLoading && <BeatLoader color="#fff" size={10} />}
-                    </div>
-                    {!isLoading && errorMessage && (
-                        <p className="z-50 max-w-2xl text-[#a7ffe2] bg-black/40 rounded-lg px-4 py-2">
-                            {errorMessage}
-                        </p>
-                    )}
+                </div>
+
+                {/* The results sit under the controls in normal flow and are sized by their
+                    content, so a long playlist makes the hero taller (pushing the section
+                    below down) instead of being capped to the viewport or moving the
+                    controls above. */}
+                <div className='z-50 w-full flex flex-col items-center px-2 pb-24'>
                     {videos.length > 0 && (
-                        <div className='w-full flex flex-col items-center gap-y-5'>
-                            <button onClick={startDownload} className="rounded-lg hover:bg-[#a7ffe2] transition-all duration-300 bg-[#72ffce] px-8 py-2 text-black font-medium text-lg">Start Download</button>
-                            {/* Results sit in the same column as the buttons, so they land directly
-                                under them. Capped + scrollable so a long playlist can't push the
-                                hero past the viewport its section locks with overflow-hidden. */}
-                            <div className='w-full lg:w-2/3 max-h-[38vh] overflow-y-auto flex custom-scrollbar flex-col gap-y-6 pb-2'>
+                        <>
+                            <button onClick={startDownload} className="mt-5 rounded-lg hover:bg-[#a7ffe2] transition-all duration-300 bg-[#72ffce] px-8 py-2 text-black font-medium text-lg">Start Download</button>
+                            <div
+                                ref={resultsListRef}
+                                style={{ maxHeight: listMaxHeight }}
+                                className='mt-5 w-full lg:w-2/3 flex custom-scrollbar flex-col gap-y-6 overflow-y-auto'
+                            >
                                 {videos.map((video, index) => (
                                     <Video
                                         key={index}
@@ -370,29 +495,31 @@ const Home = () => {
                                     />
                                 ))}
                             </div>
-                        </div>
+                        </>
                     )}
                 </div>
-                <div className='absolute z-50 bottom-8 w-full flex justify-between xl:px-36 px-3 sm:px-10 lg:px-20'>
-                    <div className="flex gap-2">
-                        <p className='text-white hidden xl:block'>{dictionary[language].followus}</p>
-                        <div className='flex text-white items-center space-x-1'>
-                            <FontAwesomeIcon className='bg-white rounded-full p-1 cursor-pointer' icon={faFacebook} color='black' />
-                            <FontAwesomeIcon className='bg-white rounded-full p-1 cursor-pointer' icon={faInstagram} color='black' />
-                            <FontAwesomeIcon className='bg-white rounded-full p-1 cursor-pointer' icon={faWhatsapp} color='black' />
-                            <FontAwesomeIcon className='bg-white rounded-full p-1 cursor-pointer' icon={faXTwitter} color='black' />
+
+                {/* Fixed to the bottom corners of the viewport - Follow Us on the left, Scroll to
+                    explore on the right - so neither a taller hero nor scrolling can move them.
+                    The wrapper is click-through; only the two groups take clicks, so the rows
+                    behind it stay usable. */}
+                <div className={`fixed inset-x-0 bottom-0 z-50 flex pointer-events-none transition-[opacity,visibility] duration-300 ${isSocialRowVisible ? 'opacity-100 visible' : 'opacity-0 invisible'}`}>
+                    <div className='w-full flex justify-between xl:px-36 px-3 sm:px-10 lg:px-20 pb-8'>
+                        <div className="flex gap-2 pointer-events-auto">
+                            <p className='text-white hidden xl:block'>{dictionary[language].followus}</p>
+                            <div className='flex text-white items-center space-x-1'>
+                                <FontAwesomeIcon className='bg-white rounded-full p-1 cursor-pointer' icon={faFacebook} color='black' />
+                                <FontAwesomeIcon className='bg-white rounded-full p-1 cursor-pointer' icon={faInstagram} color='black' />
+                                <FontAwesomeIcon className='bg-white rounded-full p-1 cursor-pointer' icon={faWhatsapp} color='black' />
+                                <FontAwesomeIcon className='bg-white rounded-full p-1 cursor-pointer' icon={faXTwitter} color='black' />
+                            </div>
+                        </div>
+                        <div className='flex items-center space-x-1 text-white pointer-events-auto'>
+                            <p><span className="font-medium">{ isMobileOrTablet?  dictionary[language].swipe : dictionary[language].scroll }</span> {dictionary[language].explore }</p><FontAwesomeIcon color='#72ffce' icon={faArrowDown} />
                         </div>
                     </div>
-                    <div className='flex items-center space-x-1 text-white'>
-                        <p><span className="font-medium">{ isMobileOrTablet?  dictionary[language].swipe : dictionary[language].scroll }</span> {dictionary[language].explore }</p><FontAwesomeIcon color='#72ffce' icon={faArrowDown} />
-                    </div>
                 </div>
-                {sparkles.map((_, index) => (
-                    <Sparkles key={index} direction="up" />
-                ))}
-                {sparkles.map((_, index) => (
-                    <Sparkles key={index} direction="down" />
-                ))}
+                {SPARK_FIELD}
                 <Media />
             </div>
         </div>

@@ -1,54 +1,43 @@
-import React from 'react'
-import { useState, useEffect } from 'react';
-import { motion } from "framer-motion";
+import React, { useState } from 'react'
 
-const Sparkles = ({ direction }) => {
-    const randomX = Math.floor(Math.random() * (350 - 0 + 1)) + 0;
-    const initialX = Math.random > 0.5 ? randomX : -randomX;
+/* A single spark.
+ *
+ * The drift is a CSS keyframe animation rather than a framer-motion tween, for
+ * two reasons:
+ *
+ *  1. Cost. Two dozen of these run at once behind the hero's full-screen backdrop
+ *     blur. A transform/opacity keyframe animation is driven by the compositor, so
+ *     it costs no main-thread time, where 24 JS-driven tweens competed with React
+ *     for every frame.
+ *  2. Continuity. The random path used to be rebuilt during render, so any
+ *     re-render of the hero (every keystroke in the URL field) handed framer
+ *     motion a fresh set of targets and the drift visibly restarted. The seed is
+ *     now decided once per mount, and a CSS animation is untouched by renders.
+ */
+const Sparkles = React.memo(function Sparkles({ direction }) {
+    // Lazy initialiser: runs on mount only, so a re-render cannot disturb the path.
+    const [seed] = useState(() => ({
+        // Was `Math.random > 0.5` - comparing the function itself, so every spark
+        // always drifted to the left. Now a real coin flip.
+        x: (Math.random() > 0.5 ? 1 : -1) * Math.floor(Math.random() * 351),
+        y: Math.floor(Math.random() * 50),
+        // Same 2-5s spread as before.
+        duration: (Math.random() * 3 + 2).toFixed(2),
+    }))
 
-    const initialY = Math.floor(Math.random() * (50));
+    const isUp = direction === 'up'
 
-    const particleDuration = Math.random() * (10 - 7) + 2;
-
-    if (direction === "up") {
-        return (
-            <motion.div
-                className="w-1 h-1 blurry-border shadow-intense bg-[#72ffce] absolute z-50"
-                initial={{ x: initialX, y: initialY }}
-                animate={{
-                    x: [initialX - 64, initialX - 60, initialX - 68, initialX - 120, initialX - 170], 
-                    y: [-initialY - 100, -initialY - 300], // Wiggle effect in y-axis
-                    opacity: [0, 1, 1, 0], // Gradual fade-out
-                }}
-                transition={{
-                    duration: particleDuration,
-                    ease: "easeIn",
-                    repeat: Infinity,
-                    repeatType: "loop",
-                    times: [0, 0.3, 0.6, 1]
-                }}
-            />
-        );
-    } else {
-        return (
-            <motion.div
-                className="w-1 h-1 blurry-border shadow-intense bg-[#72ffce] absolute z-50"
-                initial={{ x: initialX + 270, y: initialY }} 
-                animate={{
-                    x: [initialX + 64 + 270, initialX + 60 + 270, initialX + 68 + 270, initialX + 120 + 270, initialX + 170 + 270], // Wiggle effect in x-axis
-                    y: [initialY + 100, initialY + 300], 
-                    opacity: [0, 1, 1, 0], 
-                }}
-                transition={{
-                    duration: particleDuration,
-                    ease: "easeIn",
-                    repeat: Infinity,
-                    repeatType: "loop",
-                    times: [0, 0.3, 0.6, 1]
-                }}
-            />
-        );
-    }
-}
+    return (
+        <div
+            className={`w-1 h-1 blurry-border shadow-intense bg-[#72ffce] absolute z-50 will-change-transform ${isUp ? 'spark-up' : 'spark-down'}`}
+            style={{
+                // The falling field starts to the right of the rising one, as before.
+                '--spark-x': `${seed.x + (isUp ? 0 : 270)}px`,
+                '--spark-y': `${seed.y}px`,
+                '--spark-duration': `${seed.duration}s`,
+            }}
+        />
+    )
+})
 
 export default Sparkles
