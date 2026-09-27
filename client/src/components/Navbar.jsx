@@ -58,7 +58,7 @@ const Navbar = () => {
     <div className={`fixed top-0 w-full text-white xl:px-36 py-3 sm:px-10 lg:px-20 lg:py-6 px-3 flex justify-between items-center z-50 border-b transition-[background-color,border-color,box-shadow] duration-300 ${isScrolledFromTop ? 'border-white/10 bg-[#04110d]/80 shadow-[0_8px_30px_rgba(0,0,0,0.45)] backdrop-blur-xl' : 'border-transparent bg-transparent'}`}>
       <div className='flex items-center lg:space-x-24'>
         <div className='flex items-center gap-3'>
-          <img src='/images/tubeko-lg.png' alt='' className='h-12 xl:h-14 w-auto' />
+          <img src='/images/tubeko-lg.png' alt='' className='h-8 xl:h-10 w-auto' />
           <span className='font-sora font-bold gradient-text tracking-[0.18em] leading-none whitespace-nowrap select-none text-xl sm:text-2xl xl:text-3xl'>TUBEKO</span>
         </div>
         <AnimatePresence>
