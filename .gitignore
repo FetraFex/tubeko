@@ -29,3 +29,8 @@ dist-ssr
 *.sw?
 client/node_modules/*
 server/node_modules/*
+
+# yt-dlp session tokens. Written by every run, different on every machine, and it
+# keeps coming up as a modified file while it stays tracked - hence the file is
+# untracked as well as ignored.
+server/cookies.txt
