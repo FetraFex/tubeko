@@ -62,7 +62,14 @@ export const disposeFFmpeg = () => {
 // ffmpeg.wasm keeps every input *and* the output in memory (wasm32 tops out
 // around 2GB), so muxing a very long video in the browser would crash the tab.
 // Beyond this the caller falls back to the server-side pipeline instead.
-export const MAX_BROWSER_BYTES = 400 * 1024 * 1024
+//
+// The ceiling is set well under the wasm32 limit on purpose: the bytes are held
+// in the page *and* copied into ffmpeg's filesystem, so the real footprint is
+// roughly twice the media size. It was 400MB, which sent anything longer than a
+// short 1080p video to the server; 700MB keeps that headroom while letting much
+// more download and merge locally. Downloads that turn out to be bigger than
+// their reported size are still caught mid-stream and fall back.
+export const MAX_BROWSER_BYTES = 700 * 1024 * 1024
 
 export const TOO_LARGE = 'TOO_LARGE'
 export const BAD_MEDIA = 'BAD_MEDIA'

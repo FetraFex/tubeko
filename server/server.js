@@ -252,10 +252,31 @@ app.get('/api/playlist/:playlistId', async (req, res) => {
       pages += 1;
     } while (nextPageToken && pages < MAX_PLAYLIST_PAGES);
 
+    // playlistItems returns the videos but no header, so the playlist's own title,
+    // channel and total count are asked for separately. One extra API call, and the
+    // list is still perfectly usable without it, hence the swallowed failure.
+    let playlist = null;
+    try {
+      const metaResponse = await axios.get(`${BASE_URL}/playlists`, {
+        params: { part: 'snippet,contentDetails', id: playlistId, key: API_KEY },
+      });
+      const meta = metaResponse.data.items?.[0];
+      if (meta) {
+        playlist = {
+          title: meta.snippet?.title || 'Untitled playlist',
+          channel: meta.snippet?.channelTitle || '',
+          itemCount: meta.contentDetails?.itemCount ?? null,
+        };
+      }
+    } catch (metaError) {
+      console.warn(`Playlist metadata unavailable for ${playlistId}:`, metaError.message);
+    }
+
     // Send the combined list of videos as the response
     res.json({
       videos,
       totalVideos: videos.length,
+      playlist,
       ...(nextPageToken ? { nextPageToken } : {}),
     });
   } catch (error) {
@@ -312,6 +333,8 @@ app.get('/api/video/:videoId', async (req, res) => {
           thumbnail: thumbnail,
         }],
         totalVideos: 1,
+        // Same header fields as the playlist route so the client renders one shape.
+        channel: item.snippet.channelTitle || '',
       });
     } else {
       res.status(404).json({ error: "Video not found" });

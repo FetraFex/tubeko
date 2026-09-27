@@ -325,9 +325,12 @@ const Video = forwardRef(({ title, thumbnail, videoId, quality, onComplete, onDo
     }));
 
     return (
-        <div className='flex gap-x-5 w-full text-left rounded-2xl border border-[#72ffce]/15 bg-[#08130f]/70 p-4 shadow-[0_18px_40px_-26px_rgba(0,0,0,0.95)] transition-colors duration-300 hover:border-[#72ffce]/40 hover:bg-[#08130f]/90'>
+        <div className='playlist-card flex gap-x-5 w-full text-left rounded-2xl border border-[#72ffce]/15 bg-[#08130f]/70 p-4 shadow-[0_18px_40px_-26px_rgba(0,0,0,0.95)] transition-colors duration-300 hover:border-[#72ffce]/40 hover:bg-[#08130f]/90'>
             <div className='shrink-0 self-start overflow-hidden rounded-xl ring-1 ring-white/10'>
-                <img src={thumbnail} alt={title} className='w-60 rounded-xl' />
+                {/* decoding=async plus lazy loading: a long playlist is hundreds of
+                    thumbnails, and decoding them all up front is what made scrolling
+                    stutter even when the rows themselves were cheap to paint. */}
+                <img src={thumbnail} alt={title} loading='lazy' decoding='async' className='w-60 rounded-xl' />
             </div>
             <div className='flex min-w-0 justify-between flex-col flex-1'>
                 <div>

@@ -127,6 +127,15 @@
     background: radial-gradient(#72ffce42, rgba(114, 255, 206, 0) 70%);
   }
 
+  /* One playlist row. content-visibility lets the browser skip style, layout and paint
+     for the rows scrolled out of the panel, which is what keeps a long playlist smooth;
+     contain-intrinsic-size keeps their place in the scrollbar by starting from the last
+     size the browser remembers for them (168px is the height of a plain row). */
+  .playlist-card {
+    content-visibility: auto;
+    contain-intrinsic-size: auto 168px;
+  }
+
   .hero-scrim {
     background: radial-gradient(ellipse 68% 45% at 50% 50%, rgba(4, 17, 13, 0.95) 0%, rgba(4, 17, 13, 0.7) 62%, rgba(4, 17, 13, 0) 100%);
   }

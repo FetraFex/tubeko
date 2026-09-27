@@ -1,4 +1,4 @@
-import { faArrowDown, faArrowRight, faCheck, faChevronDown, faDownload, faFileAudio, faFileVideo, faX } from '@fortawesome/free-solid-svg-icons'
+import { faArrowDown, faArrowRight, faCheck, faChevronDown, faDownload, faFileAudio, faFileVideo, faListUl, faX } from '@fortawesome/free-solid-svg-icons'
 import { faInstagram, faFacebook, faWhatsapp, faTwitter, faXTwitter } from "@fortawesome/free-brands-svg-icons";
 import { faClose } from '@fortawesome/free-solid-svg-icons/faClose'
 import { faSearch } from '@fortawesome/free-solid-svg-icons/faSearch'
@@ -31,6 +31,13 @@ const DOWNLOAD_ALL_OPTIONS = [
     { mode: 'audio', icon: faFileAudio, label: 'Download all as MP3', hint: 'Audio only, no merge' },
 ]
 
+// A row is a whole card - thumbnail, progress bar, two menus - so a few hundred of them
+// cost far more to mount and to scroll than they are worth while off screen. The list
+// mounts one chunk at a time as it is scrolled and never repositions what is mounted, so
+// cards keep their natural height even when one grows a notice mid-download.
+const RENDER_CHUNK = 40
+const LOAD_AHEAD_PX = 320
+
 const Home = () => {
     const isMobileOrTablet = useMediaQuery({query: "(max-width: 1280px)"})
     const [currentIndex, setCurrentIndex] = useState(null);
@@ -56,6 +63,11 @@ const Home = () => {
     const [downloadMode, setDownloadMode] = useState('video')
     const [isStartMenuOpen, setIsStartMenuOpen] = useState(false)
     const startMenuRef = useRef(null)
+
+    // Header for the fetched playlist (title, channel, count) and how much of a long
+    // list is currently mounted.
+    const [playlistInfo, setPlaylistInfo] = useState(null)
+    const [renderedCount, setRenderedCount] = useState(RENDER_CHUNK)
 
     useDismissOnOutsideClick(startMenuRef, isStartMenuOpen, () => setIsStartMenuOpen(false))
 
@@ -183,18 +195,34 @@ const Home = () => {
     };
 
     // Process next download whenever the queue changes
+    const dispatchedRef = useRef(null) // row already handed to the queue
+
     useEffect(() => {
-        if (downloadQueue.length === 0) return;
+        if (downloadQueue.length === 0) {
+            dispatchedRef.current = null;
+            return;
+        }
 
         const nextIndex = downloadQueue[0];
+
+        // A playlist-wide run reaches rows that are still outside the mounted chunk.
+        // Mount that row and let this effect run again once it exists.
+        if (!videoRefs.current[nextIndex]) {
+            setRenderedCount(count => Math.max(count, nextIndex + 1));
+            return;
+        }
+
+        // This effect also re-runs when the mounted window grows, so remember the row
+        // already handed over; re-dispatching it would restart its progress display.
+        if (dispatchedRef.current === nextIndex) return;
+        dispatchedRef.current = nextIndex;
+
         setActiveDownload(nextIndex);
 
         const row = videoRefs.current[nextIndex];
-        if (!row) return;
-
         if (downloadMode === 'audio') row.handleAudioDownload();
         else row.handleDownload();
-    }, [downloadQueue, downloadMode]); // Runs when `downloadQueue` updates
+    }, [downloadQueue, downloadMode, renderedCount]); // Runs when `downloadQueue` updates
 
 
     // Only the row at the head of the queue advances it. A one-off download started by
@@ -202,6 +230,20 @@ const Home = () => {
     const handleComplete = (index) => {
         setDownloadQueue(prev => (prev.length > 0 && prev[0] === index ? prev.slice(1) : prev));
     };
+
+    // Mount the next chunk once the panel is scrolled near its end. The panel is a
+    // fixed-height scroll container, so this reads as loading more as you scroll.
+    const handleListScroll = (event) => {
+        const list = event.currentTarget;
+        if (list.scrollTop + list.clientHeight < list.scrollHeight - LOAD_AHEAD_PX) return;
+        setRenderedCount(count => (count >= videos.length ? count : Math.min(videos.length, count + RENDER_CHUNK)));
+    };
+
+    // A playlist can hold more entries than the API hands back (deleted or private
+    // videos are skipped), so say so rather than implying the count is the whole list.
+    const videoCountLabel = playlistInfo?.itemCount && playlistInfo.itemCount > videos.length
+        ? `${videos.length} of ${playlistInfo.itemCount} videos`
+        : `${videos.length} ${videos.length === 1 ? 'video' : 'videos'}`;
 
 
     const morphVariants = {
@@ -261,21 +303,36 @@ const Home = () => {
         if (!url) return;
         setIsLoading(true);
         setVideos([]);
+        setPlaylistInfo(null);
+        setRenderedCount(RENDER_CHUNK);
         setErrorMessage("");
 
         try {
             const { listId, videoId } = parseYouTubeInput(url);
 
+            // Both routes answer with a video list plus the header fields, so the panel
+            // gets its title, channel and count the same way either way. A single video
+            // has no playlist, so its own title stands in for one.
+            const applyResponse = (data) => {
+                setVideos(data.videos || []);
+                setRenderedCount(RENDER_CHUNK);
+                setPlaylistInfo(
+                    data.playlist ||
+                    (data.videos?.[0]
+                        ? { title: data.videos[0].title, channel: data.channel || '', itemCount: 1 }
+                        : null)
+                );
+            };
+
             if (listId) {
                 const response = await axios.get(`http://localhost:3000/api/playlist/${listId}`);
-                console.log("Next Page token: ", response.data.nextPageToken);
-                setVideos(response.data.videos || []);
+                applyResponse(response.data);
                 if (!response.data.videos?.length) {
                     setErrorMessage("This playlist has no downloadable videos.");
                 }
             } else if (videoId) {
                 const response = await axios.get(`http://localhost:3000/api/video/${videoId}`);
-                setVideos(response.data.videos || []);
+                applyResponse(response.data);
             } else {
                 setErrorMessage("Could not parse a video or playlist from that link.");
             }
@@ -369,8 +426,11 @@ const Home = () => {
                         strokeWidth="2"
                     />
                 </svg>
+                {/* Anchored to the middle of the first screen (50vh) rather than the hero's
+                    vertical middle: a loaded playlist grows the hero to several screens, and
+                    top-1/2 dragged this blob down into the results with it. */}
                 <svg
-                    className="absolute z-0 top-1/2 left-0 -translate-x-1/3 -translate-y-1/3"
+                    className="absolute z-0 top-[50vh] left-0 -translate-x-1/3 -translate-y-1/3"
                     width="800"
                     height="800"
                     xmlns="http://www.w3.org/2000/svg"
@@ -505,6 +565,22 @@ const Home = () => {
                 <div className='z-50 w-full flex flex-col items-center px-2 pb-24'>
                     {videos.length > 0 && (
                         <>
+                            {playlistInfo && (
+                                <div className='mt-10 flex w-full items-center gap-4 rounded-2xl border border-[#72ffce]/15 bg-[#08130f]/60 p-4 text-left lg:w-3/5 xl:w-[54%] 2xl:w-[46%]'>
+                                    <span className='flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-[#72ffce]/15'>
+                                        <FontAwesomeIcon icon={faListUl} className='text-[#a7ffe2]' />
+                                    </span>
+                                    <div className='min-w-0 flex-1'>
+                                        <p className='truncate font-semibold text-white'>{playlistInfo.title}</p>
+                                        <p className='truncate text-xs text-white/55'>
+                                            {[playlistInfo.channel, videoCountLabel].filter(Boolean).join(' · ')}
+                                        </p>
+                                    </div>
+                                    {renderedCount < videos.length && (
+                                        <span className='shrink-0 text-xs text-[#72ffce]/80'>Showing {renderedCount} of {videos.length}</span>
+                                    )}
+                                </div>
+                            )}
                             <div ref={startMenuRef} className='relative mt-8'>
                                 <button
                                     type='button'
@@ -547,10 +623,11 @@ const Home = () => {
                             </div>
                             <div
                                 ref={resultsListRef}
+                                onScroll={handleListScroll}
                                 style={{ maxHeight: listMaxHeight }}
                                 className='mt-5 w-full lg:w-3/5 xl:w-[54%] 2xl:w-[46%] flex custom-scrollbar flex-col gap-y-6 overflow-y-auto'
                             >
-                                {videos.map((video, index) => (
+                                {videos.slice(0, renderedCount).map((video, index) => (
                                     <Video
                                         key={index}
                                         ref={(el) => (videoRefs.current[index] = el)}
