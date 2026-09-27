@@ -1,4 +1,4 @@
-import { faArrowDown, faArrowRight, faCheck, faChevronDown, faDownload, faX } from '@fortawesome/free-solid-svg-icons'
+import { faArrowDown, faArrowRight, faCheck, faChevronDown, faDownload, faFileAudio, faFileVideo, faX } from '@fortawesome/free-solid-svg-icons'
 import { faInstagram, faFacebook, faWhatsapp, faTwitter, faXTwitter } from "@fortawesome/free-brands-svg-icons";
 import { faClose } from '@fortawesome/free-solid-svg-icons/faClose'
 import { faSearch } from '@fortawesome/free-solid-svg-icons/faSearch'
@@ -24,6 +24,13 @@ const SPARK_FIELD = [
     ...Array.from({ length: 12 }, (_, index) => <Sparkles key={`down-${index}`} direction="down" />),
 ]
 
+// The Start Download menu. Scope (one video vs the whole playlist) belongs to the row
+// menus, so this one only picks the format the whole playlist downloads in.
+const DOWNLOAD_ALL_OPTIONS = [
+    { mode: 'video', icon: faFileVideo, label: 'Download all as MP4', hint: 'Video and audio, merged' },
+    { mode: 'audio', icon: faFileAudio, label: 'Download all as MP3', hint: 'Audio only, no merge' },
+]
+
 const Home = () => {
     const isMobileOrTablet = useMediaQuery({query: "(max-width: 1280px)"})
     const [currentIndex, setCurrentIndex] = useState(null);
@@ -42,6 +49,15 @@ const Home = () => {
     const qualityMenuRef = useRef(null)
 
     useDismissOnOutsideClick(qualityMenuRef, isQualityOpen, () => setIsQualityOpen(false))
+
+    // 'video' rows download MP4 through handleDownload, 'audio' rows download MP3
+    // through handleAudioDownload. The queue carries the mode so one playlist run
+    // stays in the format it was started in.
+    const [downloadMode, setDownloadMode] = useState('video')
+    const [isStartMenuOpen, setIsStartMenuOpen] = useState(false)
+    const startMenuRef = useRef(null)
+
+    useDismissOnOutsideClick(startMenuRef, isStartMenuOpen, () => setIsStartMenuOpen(false))
 
     const { language } = useLanguage()
 
@@ -144,36 +160,47 @@ const Home = () => {
     }, [currentIndex]);
 
 
-    // Function to start downloading from a specific index
-    const startDownloadsFromIndex = (startIndex) => {
-        const remainingVideos = videos.slice(startIndex).map((_, i) => startIndex + i);
-        console.log(remainingVideos);
-        setDownloadQueue(remainingVideos);
+    // Everything downloads through one queue so two muxes never run at once. The row
+    // menus choose the scope, the Start Download menu chooses the format.
+
+    // "This video and everything after it"
+    const startDownloadsFromIndex = (startIndex, mode = 'video') => {
+        setDownloadMode(mode);
+        setDownloadQueue(videos.slice(startIndex).map((_, i) => startIndex + i));
     };
 
-    // Function to start the download process
-    const startDownload = () => {
-        const newQueue = videos.map((_, index) => index);
-        setDownloadQueue(newQueue);
+    // "Only this video": the same pipeline with a single entry, so a one-off download
+    // cannot end up muxing alongside a playlist download.
+    const startSingleDownload = (index, audio = false) => {
+        setDownloadMode(audio ? 'audio' : 'video');
+        setDownloadQueue([index]);
+    };
+
+    // The whole playlist, in the chosen format
+    const startDownload = (mode = 'video') => {
+        setDownloadMode(mode);
+        setDownloadQueue(videos.map((_, index) => index));
     };
 
     // Process next download whenever the queue changes
     useEffect(() => {
-        if (downloadQueue.length > 0) {
-            console.log("Misy ao");
+        if (downloadQueue.length === 0) return;
 
-            const nextIndex = downloadQueue[0];
-            setActiveDownload(nextIndex);
-            videoRefs.current[nextIndex]?.handleDownload();
-        } else {
-            console.log("Tsy misy ao e");
-        }
-    }, [downloadQueue]); // Runs when `downloadQueue` updates
+        const nextIndex = downloadQueue[0];
+        setActiveDownload(nextIndex);
+
+        const row = videoRefs.current[nextIndex];
+        if (!row) return;
+
+        if (downloadMode === 'audio') row.handleAudioDownload();
+        else row.handleDownload();
+    }, [downloadQueue, downloadMode]); // Runs when `downloadQueue` updates
 
 
-    // Function to trigger the next video
-    const handleComplete = () => {
-        setDownloadQueue(prev => prev.slice(1)); // Triggers `useEffect` again
+    // Only the row at the head of the queue advances it. A one-off download started by
+    // hand on some other row must not consume the next video in a running playlist.
+    const handleComplete = (index) => {
+        setDownloadQueue(prev => (prev.length > 0 && prev[0] === index ? prev.slice(1) : prev));
     };
 
 
@@ -478,7 +505,46 @@ const Home = () => {
                 <div className='z-50 w-full flex flex-col items-center px-2 pb-24'>
                     {videos.length > 0 && (
                         <>
-                            <button onClick={startDownload} className="mt-5 rounded-lg hover:bg-[#a7ffe2] transition-all duration-300 bg-[#72ffce] px-8 py-2 text-black font-medium text-lg">Start Download</button>
+                            <div ref={startMenuRef} className='relative mt-8'>
+                                <button
+                                    type='button'
+                                    onClick={() => setIsStartMenuOpen(open => !open)}
+                                    aria-expanded={isStartMenuOpen}
+                                    aria-haspopup='menu'
+                                    className='flex items-center gap-3 rounded-full bg-[#72ffce] px-10 py-2.5 text-lg font-semibold text-black shadow-[0_0_26px_-6px_#72ffce] transition-colors duration-300 hover:bg-[#a7ffe2]'
+                                >
+                                    <span>Start Download</span>
+                                    <FontAwesomeIcon icon={faChevronDown} className={`text-sm transition-transform duration-200 ${isStartMenuOpen ? 'rotate-180' : ''}`} />
+                                </button>
+                                <AnimatePresence>
+                                    {/* Centred with a negative margin rather than -translate-x-1/2: the
+                                        entrance animation writes its own transform, which would
+                                        replace a class-based translate. */}
+                                    {isStartMenuOpen &&
+                                        <motion.div
+                                            initial={{ y: '-6px', opacity: 0, scale: 0.97 }}
+                                            animate={{ y: '0', opacity: 1, scale: 1 }}
+                                            exit={{ y: '-6px', opacity: 0, scale: 0.97 }}
+                                            transition={{ duration: 0.16, ease: 'easeOut' }}
+                                            className='absolute left-1/2 top-full z-50 mt-2 -ml-32 w-64 overflow-hidden rounded-2xl border border-white/10 bg-[#08130f]/90 p-1.5 shadow-2xl shadow-black/60 backdrop-blur-xl'
+                                        >
+                                            {DOWNLOAD_ALL_OPTIONS.map((option) => (
+                                                <button
+                                                    key={option.mode}
+                                                    type='button'
+                                                    onClick={() => { startDownload(option.mode); setIsStartMenuOpen(false) }}
+                                                    className='flex w-full cursor-pointer items-start gap-3 rounded-xl px-3 py-2.5 text-left transition-colors duration-150 hover:bg-[#72ffce]/10'
+                                                >
+                                                    <FontAwesomeIcon icon={option.icon} className='mt-0.5 text-sm text-[#a7ffe2]' />
+                                                    <span className='flex-1'>
+                                                        <span className='block text-sm text-white'>{option.label}</span>
+                                                        <span className='block text-xs text-white/45'>{option.hint}</span>
+                                                    </span>
+                                                </button>
+                                            ))}
+                                        </motion.div>}
+                                </AnimatePresence>
+                            </div>
                             <div
                                 ref={resultsListRef}
                                 style={{ maxHeight: listMaxHeight }}
@@ -488,10 +554,13 @@ const Home = () => {
                                     <Video
                                         key={index}
                                         ref={(el) => (videoRefs.current[index] = el)}
-                                        onComplete={handleComplete}
+                                        onComplete={() => handleComplete(index)}
                                         title={video.title} thumbnail={video.thumbnail} videoId={video.videoId}
                                         quality={quality}
+                                        onDownloadOnly={() => startSingleDownload(index)}
                                         onQueueAfter={() => startDownloadsFromIndex(index)}
+                                        onAudioDownloadOnly={() => startSingleDownload(index, true)}
+                                        onAudioQueueAfter={() => startDownloadsFromIndex(index, 'audio')}
                                     />
                                 ))}
                             </div>

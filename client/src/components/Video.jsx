@@ -1,5 +1,8 @@
 import React from 'react'
-import { useState, forwardRef, useImperativeHandle } from 'react';
+import { useState, useRef, forwardRef, useImperativeHandle } from 'react';
+import { faChevronDown, faDownload, faListUl } from '@fortawesome/free-solid-svg-icons';
+import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
+import { AnimatePresence, motion } from 'framer-motion';
 import {
     MAX_BROWSER_BYTES,
     TOO_LARGE,
@@ -16,9 +19,15 @@ import {
     totalBytes,
 } from '../lib/formatSelection';
 import { fallbackNotice, qualityOption, resolveVideoQuality } from '../lib/quality';
+import { useDismissOnOutsideClick } from '../lib/useDismissOnOutsideClick';
+
+// Shared by both entries of the row's download menu. Mirrors the hero's quality selector
+// so the two menus read as the same control.
+const MENU_ITEM =
+    'flex w-full cursor-pointer items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm text-white/75 transition-colors duration-150 hover:bg-[#72ffce]/10 hover:text-white';
 
 
-const Video = forwardRef(({ title, thumbnail, videoId, quality, onComplete, onQueueAfter }, ref) => {
+const Video = forwardRef(({ title, thumbnail, videoId, quality, onComplete, onDownloadOnly, onQueueAfter, onAudioDownloadOnly, onAudioQueueAfter }, ref) => {
 
 
     /***Download information */
@@ -42,6 +51,16 @@ const Video = forwardRef(({ title, thumbnail, videoId, quality, onComplete, onQu
         type: '', // 'video', 'audio', or 'merge'
         progress: 0
     });
+    // Per-row menus: download just this video/audio, or this one and everything below.
+    const [isDownloadMenuOpen, setIsDownloadMenuOpen] = useState(false);
+    const downloadMenuRef = useRef(null);
+
+    const [isAudioMenuOpen, setIsAudioMenuOpen] = useState(false);
+    const audioMenuRef = useRef(null);
+
+    useDismissOnOutsideClick(downloadMenuRef, isDownloadMenuOpen, () => setIsDownloadMenuOpen(false));
+    useDismissOnOutsideClick(audioMenuRef, isAudioMenuOpen, () => setIsAudioMenuOpen(false));
+
 
 
     // Metadata for the current video: title plus every downloadable format.
@@ -95,6 +114,9 @@ const Video = forwardRef(({ title, thumbnail, videoId, quality, onComplete, onQu
             setError(error.message || 'Audio download failed');
         } finally {
             setDownloading({ status: false, type: '', progress: 0 });
+            // Keeps a playlist-wide MP3 run advancing. A one-off audio download either
+            // finds the queue empty or another row at its head, and leaves it alone.
+            onComplete();
         }
     };
 
@@ -297,25 +319,26 @@ const Video = forwardRef(({ title, thumbnail, videoId, quality, onComplete, onQu
     };
 
     useImperativeHandle(ref, () => ({
-        handleDownload
+        handleDownload,
+        // The playlist queue reaches for this one when the run was started in audio mode.
+        handleAudioDownload
     }));
 
     return (
-        <div className='flex gap-x-10 w-full text-left'>
-            <div className='shrink-0'>
-                <img src={thumbnail} alt={title} className='w-60 rounded-lg' />
+        <div className='flex gap-x-5 w-full text-left rounded-2xl border border-[#72ffce]/15 bg-[#08130f]/70 p-4 shadow-[0_18px_40px_-26px_rgba(0,0,0,0.95)] transition-colors duration-300 hover:border-[#72ffce]/40 hover:bg-[#08130f]/90'>
+            <div className='shrink-0 self-start overflow-hidden rounded-xl ring-1 ring-white/10'>
+                <img src={thumbnail} alt={title} className='w-60 rounded-xl' />
             </div>
-            <div className='flex justify-between flex-col flex-1'>
+            <div className='flex min-w-0 justify-between flex-col flex-1'>
                 <div>
-                    <h3 className='text-white font-bold text-lg'>{title}</h3>
-                    <h3 className='text-gray-200'>05:48</h3>
+                    <h3 className='text-white font-semibold text-base leading-snug sm:text-lg line-clamp-2'>{title}</h3>
+                    <h3 className='mt-1 text-xs text-[#a7ffe2]/70'>05:48</h3>
                 </div>
                 <div className='w-full'>
-                    <h3 className="text-white">{progressText}</h3>
-                    <div className='bg-[#636363] h-[6px] relative'>
-                        <div className="relative shadow-[0_4px_12px_#72ffce80]" style={{
+                    <h3 className="text-xs uppercase tracking-[0.14em] text-[#a7ffe2]/80">{progressText}</h3>
+                    <div className='mt-2 h-1.5 w-full overflow-hidden rounded-full bg-white/10'>
+                        <div className="relative h-full rounded-full bg-gradient-to-r from-[#16b98c] to-[#72ffce] shadow-[0_0_14px_#72ffce80]" style={{
                             width: `${progress}%`,
-                            background: '#72ffce',
                             height: '100%',
                             transition: 'width 0.2s ease-in-out'
                         }}>
@@ -324,25 +347,101 @@ const Video = forwardRef(({ title, thumbnail, videoId, quality, onComplete, onQu
                                 <div className="shining-effect"></div>
                             </div>
                         </div>
-
                     </div>
-                    <div className="flex justify-between text-white">
+                    <div className="mt-2 flex justify-between text-[11px] text-white/55">
                         <p>
                             {progress.toFixed(1)}%
                             {size.total ? ` · ${size.downloaded ? `${size.downloaded} / ` : ''}${size.total}` : ''}
                         </p>
                         <p>{speed}{eta ? ` · ETA ${eta}` : ''}</p>
                     </div>
-                    {error && <p className="text-red-400 text-sm mt-1">{error}</p>}
-                    {notice && <p className="text-amber-300 text-sm mt-1">{notice}</p>}
+                    {error && <p className="mt-2 rounded-lg border border-red-400/25 bg-red-500/10 px-3 py-1.5 text-xs text-red-300">{error}</p>}
+                    {notice && <p className="mt-2 rounded-lg border border-amber-300/25 bg-amber-400/10 px-3 py-1.5 text-xs text-amber-200">{notice}</p>}
                 </div>
-                <div className="flex gap-x-3">
-                    <button
-                        className="text-black font-bold py-2 flex-1 rounded-lg hover:bg-[#a7ffe2] bg-[#72ffce] transition-all duration-300"
-                        onClick={handleAudioDownload}>Download MP3</button>
-                    <button
-                        className="text-black font-bold py-2 flex-1 rounded-lg hover:bg-[#a7ffe2] bg-[#72ffce] transition-all duration-300"
-                        onClick={() => onQueueAfter()}>Download MP4</button>
+                <div className="mt-4 flex gap-x-3">
+                    <div ref={audioMenuRef} className="relative flex-1">
+                        <button
+                            type='button'
+                            onClick={() => setIsAudioMenuOpen(open => !open)}
+                            aria-expanded={isAudioMenuOpen}
+                            aria-haspopup='menu'
+                            className="flex w-full items-center justify-center gap-2 rounded-full bg-[#72ffce] px-4 py-2 text-sm font-semibold text-black shadow-[0_0_22px_-6px_#72ffce] transition-colors duration-300 hover:bg-[#a7ffe2]"
+                        >
+                            <span>Download MP3</span>
+                            <FontAwesomeIcon icon={faChevronDown} className={`text-xs transition-transform duration-200 ${isAudioMenuOpen ? 'rotate-180' : ''}`} />
+                        </button>
+                        {/* Mirrors the MP4 menu, but stays inside the card so it is never
+                            clipped by the list's overflow-y-auto. */}
+                        <AnimatePresence>
+                            {isAudioMenuOpen &&
+                                <motion.div
+                                    initial={{ y: '6px', opacity: 0, scale: 0.97 }}
+                                    animate={{ y: '0', opacity: 1, scale: 1 }}
+                                    exit={{ y: '6px', opacity: 0, scale: 0.97 }}
+                                    transition={{ duration: 0.16, ease: 'easeOut' }}
+                                    className='absolute bottom-full right-0 z-50 mb-2 w-60 overflow-hidden rounded-2xl border border-white/10 bg-[#08130f]/95 p-1.5 shadow-2xl shadow-black/60 backdrop-blur-xl'
+                                >
+                                    <button
+                                        type='button'
+                                        onClick={() => { setIsAudioMenuOpen(false); onAudioDownloadOnly(); }}
+                                        className={MENU_ITEM}
+                                    >
+                                        <FontAwesomeIcon icon={faDownload} className='text-xs text-[#a7ffe2]' />
+                                        <span className='flex-1'>Only this audio</span>
+                                    </button>
+                                    <button
+                                        type='button'
+                                        onClick={() => { setIsAudioMenuOpen(false); onAudioQueueAfter(); }}
+                                        className={MENU_ITEM}
+                                    >
+                                        <FontAwesomeIcon icon={faListUl} className='text-xs text-[#a7ffe2]' />
+                                        <span className='flex-1'>This audio and everything after</span>
+                                    </button>
+                                </motion.div>}
+                        </AnimatePresence>
+                    </div>
+
+                    <div ref={downloadMenuRef} className="relative flex-1">
+                        <button
+                            type='button'
+                            onClick={() => setIsDownloadMenuOpen(open => !open)}
+                            aria-expanded={isDownloadMenuOpen}
+                            aria-haspopup='menu'
+                            className="flex w-full items-center justify-center gap-2 rounded-full bg-[#72ffce] px-4 py-2 text-sm font-semibold text-black shadow-[0_0_22px_-6px_#72ffce] transition-colors duration-300 hover:bg-[#a7ffe2]"
+                        >
+                            <span>Download MP4</span>
+                            <FontAwesomeIcon icon={faChevronDown} className={`text-xs transition-transform duration-200 ${isDownloadMenuOpen ? 'rotate-180' : ''}`} />
+                        </button>
+                        {/* Opens upwards: the row lives in a scrolling list, and a menu that
+                            grew below the card would be clipped by that container. */}
+                        <AnimatePresence>
+                            {isDownloadMenuOpen &&
+                                <motion.div
+                                    initial={{ y: '6px', opacity: 0, scale: 0.97 }}
+                                    animate={{ y: '0', opacity: 1, scale: 1 }}
+                                    exit={{ y: '6px', opacity: 0, scale: 0.97 }}
+                                    transition={{ duration: 0.16, ease: 'easeOut' }}
+                                    className='absolute bottom-full right-0 z-50 mb-2 w-60 overflow-hidden rounded-2xl border border-white/10 bg-[#08130f]/95 p-1.5 shadow-2xl shadow-black/60 backdrop-blur-xl'
+                                >
+                                    <button
+                                        type='button'
+                                        onClick={() => { setIsDownloadMenuOpen(false); onDownloadOnly(); }}
+                                        className={MENU_ITEM}
+                                    >
+                                        <FontAwesomeIcon icon={faDownload} className='text-xs text-[#a7ffe2]' />
+                                        <span className='flex-1'>Only this video</span>
+                                    </button>
+                                    <button
+                                        type='button'
+                                        onClick={() => { setIsDownloadMenuOpen(false); onQueueAfter(); }}
+                                        className={MENU_ITEM}
+                                    >
+                                        <FontAwesomeIcon icon={faListUl} className='text-xs text-[#a7ffe2]' />
+                                        <span className='flex-1'>This video and everything after</span>
+                                    </button>
+                                </motion.div>}
+                        </AnimatePresence>
+                    </div>
                 </div>
             </div>
         </div>
