@@ -6,6 +6,7 @@ import { AnimatePresence, motion } from 'framer-motion';
 import {
     MAX_BROWSER_BYTES,
     TOO_LARGE,
+    audioToMp3,
     downloadAudioOnly,
     downloadMedia,
     formatBytes,
@@ -72,8 +73,8 @@ const Video = forwardRef(({ title, thumbnail, videoId, quality, onComplete, onDo
         return response.json();
     };
 
-    // Audio-only download: pulls just the audio stream and saves it as m4a.
-    // No video, and no mux step - the stream is already AAC.
+    // Audio-only download: pulls just the audio stream, re-encodes it to mp3
+    // and saves that. No video, and no mux step - there is only one stream.
     const handleAudioDownload = async () => {
         if (downloading.status) return;
         setError('');
@@ -104,11 +105,32 @@ const Video = forwardRef(({ title, thumbnail, videoId, quality, onComplete, onDo
                 },
             });
 
+            // The stream arrives as AAC, which has to be re-encoded: the
+            // download is already complete and playable, so a failed conversion
+            // is not worth losing it over - keep the m4a and say why.
+            setProgressText("Converting to MP3...");
+            setProgress(0);
+            setSize({ downloaded: '', total: '' });
+            setSpeed('');
+            setEta('');
+
+            const label = sanitizeFilename(data.title);
+            let blob;
+            let filename = `${label}.mp3`;
+            try {
+                blob = await audioToMp3({ audioData, onProgress: setProgress });
+            } catch (conversionError) {
+                console.warn('[audio] mp3 conversion failed, saving the original m4a:', conversionError);
+                addNotice(`Could not convert this one to MP3 (${conversionError.message}), so it was saved as M4A instead.`);
+                blob = new Blob([audioData], { type: 'audio/mp4' });
+                filename = `${label}.m4a`;
+            }
+
             setProgressText("Saving file...");
             setProgress(100);
             setSpeed('');
             setEta('');
-            saveBlob(new Blob([audioData], { type: 'audio/mp4' }), `${sanitizeFilename(data.title)}.m4a`);
+            saveBlob(blob, filename);
         } catch (error) {
             console.error('Audio download error:', error);
             setError(error.message || 'Audio download failed');
