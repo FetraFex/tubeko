@@ -12,6 +12,16 @@ import { useDismissOnOutsideClick } from '../lib/useDismissOnOutsideClick'
 // How far the page has to move before the bar stops being transparent.
 const SCROLL_TRIGGER_PX = 16
 
+// A section counts as the current one once its top has passed underneath the fixed
+// bar, not once it fills the screen - the menu label sits under the bar, so that is
+// the line the marker has to be read against.
+const ACTIVE_MARKER_PX = 96
+
+// One menu link: tinted on hover, mint with a soft underline while its section is
+// the one under the bar.
+const MENU_LINK = 'inline-block transition-colors duration-200 hover:text-[#a7ffe2] hover:underline hover:underline-offset-4 hover:decoration-[#72ffce]/70'
+const MENU_ACTIVE = 'text-[#72ffce] underline underline-offset-4 decoration-[#72ffce]/70'
+
 // Which section of the landing page each menu entry jumps to, in dictionary order.
 // "How to Use/FAQ" has no section to reach yet - HowToUse.jsx exists but is not
 // mounted in Landing.jsx - so it stays a plain label until that section is added.
@@ -41,6 +51,32 @@ const Navbar = () => {
   const closeMenuAfterJump = () => {
     if (isMobileOrTablet) setIsMenuOpen(false)
   }
+
+  // Which section is under the bar. The marker follows the scroll rather than the
+  // click, so a page moved by hand still lights up the right entry, and a hand that
+  // never clicks the menu at all gets the same feedback.
+  const [activeSection, setActiveSection] = useState('home')
+
+  useEffect(() => {
+    const ids = MENU_TARGETS.filter(Boolean)
+
+    const sync = () => {
+      let current = ids[0]
+      for (const id of ids) {
+        const el = document.getElementById(id)
+        if (el && el.getBoundingClientRect().top <= ACTIVE_MARKER_PX) current = id
+      }
+      setActiveSection(current)
+    }
+
+    sync()
+    window.addEventListener('scroll', sync, { passive: true })
+    window.addEventListener('resize', sync)
+    return () => {
+      window.removeEventListener('scroll', sync)
+      window.removeEventListener('resize', sync)
+    }
+  }, [])
 
   // At the top of the page the bar floats transparently over the hero, where the
   // mint bloom and the dark scrim already give the links something to sit on.
@@ -79,11 +115,22 @@ const Navbar = () => {
             <motion.ul initial={{ x: "100%", opacity: 0 }} animate={{ x: "0", opacity: 1 }} exit={{ x: "100%", opacity: 0 }} className={`xl:flex gap-8 absolute xl:relative w-full top-full xl:top-auto bg-black xl:bg-transparent left-0 px-3 h-screen xl:h-auto space-y-4 xl:space-y-0 text-end`}>
               {dictionary[language].menu.map((label, index) => {
                 const target = MENU_TARGETS[index]
+
+                if (!target) {
+                  return <li key={label} className='font-semibold'>{label}</li>
+                }
+
+                const isActive = activeSection === target
                 return (
                   <li key={label} className='font-semibold'>
-                    {target
-                      ? <a href={`#${target}`} onClick={closeMenuAfterJump} className='transition-colors duration-200 hover:text-[#a7ffe2]'>{label}</a>
-                      : <span className='cursor-default'>{label}</span>}
+                    <a
+                      href={`#${target}`}
+                      onClick={closeMenuAfterJump}
+                      aria-current={isActive ? 'true' : undefined}
+                      className={isActive ? MENU_ACTIVE : MENU_LINK}
+                    >
+                      {label}
+                    </a>
                   </li>
                 )
               })}
