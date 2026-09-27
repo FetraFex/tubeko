@@ -301,13 +301,13 @@ const Video = forwardRef(({ title, thumbnail, videoId, quality, onComplete, onQu
     }));
 
     return (
-        <div className='flex gap-x-10 w-full'>
-            <div>
-                <img src={thumbnail} alt={title} className='max-h-50 rounded-lg' />
+        <div className='flex gap-x-10 w-full text-left'>
+            <div className='shrink-0'>
+                <img src={thumbnail} alt={title} className='w-60 rounded-lg' />
             </div>
             <div className='flex justify-between flex-col flex-1'>
                 <div>
-                    <h3 className='text-white font-bold text-xl'>{title}</h3>
+                    <h3 className='text-white font-bold text-lg'>{title}</h3>
                     <h3 className='text-gray-200'>05:48</h3>
                 </div>
                 <div className='w-full'>

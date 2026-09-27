@@ -482,7 +482,7 @@ const Home = () => {
                             <div
                                 ref={resultsListRef}
                                 style={{ maxHeight: listMaxHeight }}
-                                className='mt-5 w-full lg:w-2/3 flex custom-scrollbar flex-col gap-y-6 overflow-y-auto'
+                                className='mt-5 w-full lg:w-3/5 xl:w-[54%] 2xl:w-[46%] flex custom-scrollbar flex-col gap-y-6 overflow-y-auto'
                             >
                                 {videos.map((video, index) => (
                                     <Video
