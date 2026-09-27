@@ -357,7 +357,7 @@ const Home = () => {
             {/* min-h-screen (not h-screen): the hero is allowed to grow past the first
                 screen so a long playlist has room. That pushes whatever follows the hero
                 down the page instead of squeezing the results into the viewport. */}
-            <div ref={heroRef} className='bg-default-gradient min-h-screen flex flex-col items-center text-center relative z-0 overflow-hidden'>
+            <div ref={heroRef} id='home' className='bg-default-gradient min-h-screen flex flex-col items-center text-center relative z-0 overflow-hidden'>
                 <svg
                     className="absolute z-0 top-0 right-0 translate-x-1/2"
                     width="800"
@@ -665,7 +665,17 @@ const Home = () => {
                         </div>
                     </div>
                 </div>
-                {SPARK_FIELD}
+                {/* Both the spark field and the drifting media icons are absolutely
+                    positioned, so with no inset of their own they take their static
+                    position from the hero's flex alignment: the content-box start, which
+                    is the very top of the hero. That is the whole reason the drift used to
+                    sit above the headline instead of behind it. This zero-size origin
+                    pins it to the middle of the first screen instead - 50vh rather than
+                    the hero's own middle, for the same reason the blob above uses it: a
+                    loaded playlist makes the hero several screens tall. */}
+                <div className='absolute left-1/2 top-[50vh] z-50 h-0 w-0 pointer-events-none'>
+                    {SPARK_FIELD}
+                </div>
                 <Media />
             </div>
         </div>

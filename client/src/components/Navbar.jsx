@@ -12,6 +12,11 @@ import { useDismissOnOutsideClick } from '../lib/useDismissOnOutsideClick'
 // How far the page has to move before the bar stops being transparent.
 const SCROLL_TRIGGER_PX = 16
 
+// Which section of the landing page each menu entry jumps to, in dictionary order.
+// "How to Use/FAQ" has no section to reach yet - HowToUse.jsx exists but is not
+// mounted in Landing.jsx - so it stays a plain label until that section is added.
+const MENU_TARGETS = ['home', null, 'features', 'supported-formats']
+
 // Language codes paired with the country flag react-world-flags expects.
 const languages = [
   { code: 'en', flag: 'US' },
@@ -28,6 +33,14 @@ const Navbar = () => {
 
   // Dismiss the language panel on an outside click or Escape.
   useDismissOnOutsideClick(languageMenuRef, isDropdownOpen, () => setIsDropdownOpen(false))
+
+  // On small screens the menu is a full-screen panel, so following a link has to
+  // close it or the section it just scrolled to stays covered. On desktop the same
+  // list is the inline row in the bar and there is no burger to bring it back, so
+  // it is left open there.
+  const closeMenuAfterJump = () => {
+    if (isMobileOrTablet) setIsMenuOpen(false)
+  }
 
   // At the top of the page the bar floats transparently over the hero, where the
   // mint bloom and the dark scrim already give the links something to sit on.
@@ -58,16 +71,22 @@ const Navbar = () => {
     <div className={`fixed top-0 w-full text-white xl:px-36 py-3 sm:px-10 lg:px-20 lg:py-6 px-3 flex justify-between items-center z-50 border-b transition-[background-color,border-color,box-shadow] duration-300 ${isScrolledFromTop ? 'border-white/10 bg-[#04110d]/80 shadow-[0_8px_30px_rgba(0,0,0,0.45)] backdrop-blur-xl' : 'border-transparent bg-transparent'}`}>
       <div className='flex items-center lg:space-x-24'>
         <div className='flex items-center gap-3'>
-          <img src='/images/tubeko-lg.png' alt='' className='h-8 xl:h-10 w-auto' />
-          <span className='font-sora font-bold gradient-text tracking-[0.18em] leading-none whitespace-nowrap select-none text-xl sm:text-2xl xl:text-3xl'>TUBEKO</span>
+          <img src='/images/tubeko-lg.png' alt='' className='h-7 xl:h-8 w-auto' />
+          <span className='font-sora font-bold gradient-text tracking-[0.18em] leading-none whitespace-nowrap select-none text-lg sm:text-xl xl:text-2xl'>TUBEKO</span>
         </div>
         <AnimatePresence>
           {isMenuOpen &&
             <motion.ul initial={{ x: "100%", opacity: 0 }} animate={{ x: "0", opacity: 1 }} exit={{ x: "100%", opacity: 0 }} className={`xl:flex gap-8 absolute xl:relative w-full top-full xl:top-auto bg-black xl:bg-transparent left-0 px-3 h-screen xl:h-auto space-y-4 xl:space-y-0 text-end`}>
-              <li className='font-semibold'>{dictionary[language].menu[0]}</li>
-              <li className='font-semibold'>{dictionary[language].menu[1]}</li>
-              <li className='font-semibold'>{dictionary[language].menu[2]}</li>
-              <li className='font-semibold'>{dictionary[language].menu[3]}</li>
+              {dictionary[language].menu.map((label, index) => {
+                const target = MENU_TARGETS[index]
+                return (
+                  <li key={label} className='font-semibold'>
+                    {target
+                      ? <a href={`#${target}`} onClick={closeMenuAfterJump} className='transition-colors duration-200 hover:text-[#a7ffe2]'>{label}</a>
+                      : <span className='cursor-default'>{label}</span>}
+                  </li>
+                )
+              })}
             </motion.ul>}
         </AnimatePresence>
       </div>

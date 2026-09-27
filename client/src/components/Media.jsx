@@ -30,9 +30,13 @@ const Media = () => {
 
     let d = 0.3
 
-
+    // The field is anchored to the middle of the first screen rather than the hero's own
+    // middle, for the same reason as the sparks and the blobs in Home: an absolutely
+    // positioned child of the hero takes its static position from the container's
+    // content-box start - the very top - and a loaded playlist makes the hero several
+    // screens tall, which would drag 50% out of the viewport.
     return (
-        <div className='flex absolute z-40 w-screen justify-around'>
+        <div className='flex absolute left-1/2 top-[50vh] z-40 w-screen -translate-x-1/2 -translate-y-1/2 justify-around'>
             <div>
                 {firstHalfIndexes.map((indexValue, index) => (
 

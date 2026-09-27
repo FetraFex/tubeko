@@ -4,6 +4,12 @@
 @tailwind components;
 @tailwind utilities;
 
+/* The navbar's menu links jump between sections of the landing page, so the scroll
+   is eased instead of teleporting. */
+html {
+  scroll-behavior: smooth;
+}
+
 /* styles.css or inside a <style> tag */
 .custom-scrollbar::-webkit-scrollbar {
   width: 6px;
