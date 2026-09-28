@@ -159,11 +159,11 @@ html {
     contain-intrinsic-size: auto var(--playlist-row);
   }
 
-  /* The panel shows six rows and scrolls the rest. The height is computed from the row
+  /* The panel shows four rows and scrolls the rest. The height is computed from the row
      size above instead of from a measured row, so it is the same on every screen and
      never changes while the list is scrolled. */
   .playlist-viewport {
-    max-height: calc(6 * var(--playlist-row) + 5 * var(--playlist-gap));
+    max-height: calc(4 * var(--playlist-row) + 3 * var(--playlist-gap));
   }
 
   .hero-scrim {

@@ -132,7 +132,7 @@ const Home = () => {
         }
     }, [])
 
-    // The playlist panel shows six rows and scrolls the rest. Its height comes from the
+    // The playlist panel shows four rows and scrolls the rest. Its height comes from the
     // .playlist-viewport class in index.css rather than from a measured row, so it is the
     // same size everywhere and does not change while the list is scrolled.
 
@@ -593,7 +593,7 @@ const Home = () => {
                                         </motion.div>}
                                 </AnimatePresence>
                             </div>
-                            {/* Six rows tall and fixed: the playlist scrolls inside the panel
+                            {/* Four rows tall and fixed: the playlist scrolls inside the panel
                                 instead of resizing it. */}
                             <div
                                 onScroll={handleListScroll}
