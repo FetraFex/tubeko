@@ -38,13 +38,13 @@ const dictionary = {
         howToUseSteps: [
             {
                 title: "Paste the link",
-                content: "Copy the URL of a YouTube video or playlist and paste it into the field at the top of this page. Tubeko reads the link and lists every video it contains."
+                content: "Copy the URL of a YouTube video or playlist and paste it into the field at the top of this page."
             }, {
-                title: "Choose the format",
-                content: "Pick an MP4 resolution in the Quality menu, or switch to MP3 to keep the audio only. In a playlist the format is set row by row, so one video can differ from the rest."
+                title: "Start the conversion",
+                content: "Press Start conversion below the field. Tubeko reads the link and lists every video it contains."
             }, {
                 title: "Start the download",
-                content: "Use the download button on a row for a single video, or Download all to work through the playlist in order. The file is assembled in your browser - there is nothing to install and no account to create."
+                content: "Pick an MP4 resolution in the Quality menu, or switch to MP3 to keep the audio only. In a playlist the format is set row by row, so one video can differ from the rest. Then use the download button on a row for a single video, or Download all to work through the playlist in order. The file is assembled in your browser - there is nothing to install and no account to create."
             }
         ],
         supportedFormat: "Supported Formats",
@@ -259,13 +259,13 @@ const dictionary = {
         howToUseSteps: [
             {
                 title: "Apetaho ny rohy",
-                content: "Adikao ny URL-n'ny horonantsary na ny playlist YouTube dia apetraho ao amin'ny sehatra eo an-tampon'ity pejy ity. Vakian'i Tubeko ilay rohy ary asehony daholo ny horonantsary ao anatiny."
+                content: "Adikao ny URL-n'ny horonantsary na ny playlist YouTube dia apetraho ao amin'ny sehatra eo an-tampon'ity pejy ity."
             }, {
-                title: "Safidio ny endrika",
-                content: "Fidio ny kalitaon'ny MP4 ao amin'ny lisitra Kalitao, na MP3 raha ny feo ihany no tazoninao. Ao amin'ny playlist dia isaky ny andalana no safidiana ny endrika, ka mety tsy hitovy amin'ny hafa ny horonantsary iray."
+                title: "Atombohy ny fandikana",
+                content: "Tsindrio ny bokotra « Hatomboka » eo ambany amin'ny sehatra. Vakian'i Tubeko ilay rohy ary asehony daholo ny horonantsary ao anatiny."
             }, {
                 title: "Atombohy ny fakana",
-                content: "Ampiasao ny bokotra fakana eo amin'ny andalana iray raha horonantsary tokana no tadiavinao, na ny «Alaivo daholo» hanaraka ny filaharan'ny playlist. Ao amin'ny navigateur-nao no amboarina ilay rakitra - tsy mila fametrahana na fanokafana kaonty."
+                content: "Fidio ny kalitaon'ny MP4 ao amin'ny lisitra Kalitao, na MP3 raha ny feo ihany no tazoninao. Ao amin'ny playlist dia isaky ny andalana no safidiana ny endrika, ka mety tsy hitovy amin'ny hafa ny horonantsary iray. Avy eo ampiasao ny bokotra fakana eo amin'ny andalana iray raha horonantsary tokana no tadiavinao, na ny «Alaivo daholo» hanaraka ny filaharan'ny playlist. Ao amin'ny navigateur-nao no amboarina ilay rakitra - tsy mila fametrahana na fanokafana kaonty."
             }
         ],
         supportedFormat: "Ireo endrika nomerika",
@@ -495,13 +495,13 @@ const dictionary = {
         howToUseSteps: [
             {
                 title: "Collez le lien",
-                content: "Copiez l’URL d’une vidéo ou d’une playlist YouTube et collez-la dans le champ en haut de cette page. Tubeko lit le lien et affiche toutes les vidéos qu’il contient."
+                content: "Copiez l’URL d’une vidéo ou d’une playlist YouTube et collez-la dans le champ en haut de cette page."
             }, {
-                title: "Choisissez le format",
-                content: "Sélectionnez une résolution MP4 dans le menu Qualité, ou passez en MP3 pour ne garder que l’audio. Dans une playlist, le format se règle ligne par ligne : une vidéo peut donc différer des autres."
+                title: "Lancez la conversion",
+                content: "Cliquez sur le bouton « Démarrer la conversion » sous le champ. Tubeko lit le lien et affiche toutes les vidéos qu’il contient."
             }, {
                 title: "Lancez le téléchargement",
-                content: "Utilisez le bouton de téléchargement d’une ligne pour une seule vidéo, ou « Tout télécharger » pour parcourir la playlist dans l’ordre. Le fichier est assemblé dans votre navigateur - rien à installer et aucune inscription."
+                content: "Sélectionnez une résolution MP4 dans le menu Qualité, ou passez en MP3 pour ne garder que l’audio. Dans une playlist, le format se règle ligne par ligne : une vidéo peut donc différer des autres. Utilisez ensuite le bouton de téléchargement d’une ligne pour une seule vidéo, ou « Tout télécharger » pour parcourir la playlist dans l’ordre. Le fichier est assemblé dans votre navigateur - rien à installer et aucune inscription."
             }
         ],
         supportedFormat: "Formats pris en charge",
