@@ -167,6 +167,93 @@ const parseYtDlpProgress = (line) => {
   };
 };
 
+// YouTube's bot check on a shared host ----------------------------------------
+//
+// From a datacenter IP (Render's, for one) YouTube answers yt-dlp's default
+// clients with "Sign in to confirm you're not a bot": the address is flagged, so
+// nothing about the request looks like a real client. A proof-of-origin token
+// fixes that, and yt-dlp's guidance for a refused client is to pair one with the
+// mweb client.
+//
+// scripts/setup-pot-provider.js fetches both halves during the build - a
+// single-file server that mints the tokens, and the yt-dlp plugin that asks it
+// for one - and neither lives in git. When they are missing (a dev checkout that
+// has not run that script, or a platform with no published build) none of this
+// reaches yt-dlp and the previous behaviour applies.
+const POT_BINARY_PATH = path.join(__dirname, process.platform === 'win32' ? 'bgutil-pot.exe' : 'bgutil-pot');
+const POT_PLUGIN_DIR = path.join(__dirname, 'plugins');
+const POT_PLUGIN_ZIP = path.join(POT_PLUGIN_DIR, 'bgutil-ytdlp-pot-provider-rs.zip');
+const POT_PORT = Number(process.env.POT_SERVER_PORT) || 4416;
+// mweb is the client these tokens are meant for. Player clients do get blocked
+// one at a time, so the choice stays overridable without a code change.
+const POT_PLAYER_CLIENT = process.env.YTDLP_PLAYER_CLIENT || 'mweb';
+
+// Outside Windows the binary also has to be executable, or spawning it fails and
+// every request comes back as a failed token fetch rather than a missing
+// provider that the code knows to work around.
+const potProviderInstalled = () => {
+  const mode = process.platform === 'win32' ? fs.constants.F_OK : fs.constants.X_OK;
+  try {
+    fs.accessSync(POT_BINARY_PATH, mode);
+    return fs.statSync(POT_BINARY_PATH).size > 0 && fs.existsSync(POT_PLUGIN_ZIP);
+  } catch {
+    return false;
+  }
+};
+
+// Appended to every yt-dlp call. Order matters: yt-dlp keeps only the last
+// --extractor-args for a given provider, so a caller must not add its own for
+// youtube or youtubepot-bgutilhttp after these.
+const potYtDlpArgs = () => {
+  if (!potProviderInstalled()) return [];
+  return [
+    '--plugin-dirs', POT_PLUGIN_DIR,
+    // mweb cannot play anything until the player's JavaScript challenge is
+    // solved, and the interpreter this process already runs on means the host
+    // needs no extra runtime installed.
+    '--js-runtimes', `node:${process.execPath}`,
+    '--extractor-args', `youtubepot-bgutilhttp:base_url=http://127.0.0.1:${POT_PORT}`,
+    '--extractor-args', `youtube:player_client=${POT_PLAYER_CLIENT}`,
+  ];
+};
+
+// Tokens are cached inside the provider for hours, so it is started once with the
+// server and then answers every request over loopback. If it dies, the plugin's
+// request fails and the caller sees that error; the server itself stays up.
+let potProvider = null;
+
+const startPotProvider = () => {
+  if (!potProviderInstalled()) {
+    console.log('[pot] no PO-token provider installed - yt-dlp runs without tokens');
+    return;
+  }
+
+  potProvider = spawn(
+    POT_BINARY_PATH,
+    ['server', '--host', '127.0.0.1', '--port', String(POT_PORT)],
+    { stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true }
+  );
+
+  potProvider.stdout.on('data', (data) => process.stdout.write(`[pot] ${data}`));
+  potProvider.stderr.on('data', (data) => process.stderr.write(`[pot] ${data}`));
+  potProvider.on('error', (error) => console.error(`[pot] could not start the provider: ${error.message}`));
+  potProvider.on('exit', (code, signal) => {
+    console.warn(`[pot] provider exited (code ${code}${signal ? `, signal ${signal}` : ''})`);
+    potProvider = null;
+  });
+
+  console.log(`[pot] token provider listening on 127.0.0.1:${POT_PORT}`);
+};
+
+// Without this, Ctrl+C in a dev terminal would leave the provider holding port
+// 4416 and the next run would start against a token server it cannot bind.
+for (const signal of ['SIGINT', 'SIGTERM']) {
+  process.on(signal, () => {
+    if (potProvider) potProvider.kill();
+    process.exit(0);
+  });
+}
+
 // Helper function to safely run yt-dlp
 const runYtDlpCommand = (args, options = {}) => {
   return new Promise((resolve, reject) => {
@@ -189,7 +276,8 @@ const runYtDlpCommand = (args, options = {}) => {
         '--add-header', 'User-Agent:Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36',
         '--add-header', 'Accept-Language:en-US,en;q=0.9',
         '--dump-json',
-        '--no-warnings'
+        '--no-warnings',
+        ...potYtDlpArgs()
       ];
 
       const fullArgs = [...defaultArgs, ...args];
@@ -608,6 +696,7 @@ app.get('/download/full', async (req, res) => {
       '--retries', '5', '--fragment-retries', '5', '--socket-timeout', '15',
       '--add-header', 'User-Agent:Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36',
       '--no-warnings', '--newline',
+      ...potYtDlpArgs(),
       ...extraArgs,
       '-o', filePath
     ];
@@ -935,6 +1024,7 @@ app.get('/download', async (req, res) => {
     '--fragment-retries', '5',
     '--throttled-rate', '1M',
     '--add-header', 'User-Agent:"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"',
+    ...potYtDlpArgs(),
     '-o', '-'
   ];
 
@@ -950,7 +1040,9 @@ app.get('/download', async (req, res) => {
 
   const childProcess = spawn(ytdlpPath, args, {
     stdio: ['ignore', 'pipe', 'pipe'],
-    shell: true,
+    // The arguments are already an array, so a shell would only re-split them -
+    // and the paths potYtDlpArgs() adds can contain spaces.
+    shell: false,
     windowsHide: true
   });
 
@@ -1058,12 +1150,13 @@ app.get('/download/audio', async (req, res) => {
       '--extract-audio',
       '--audio-format', 'mp3',
       '-f', itag || 'bestaudio',
+      ...potYtDlpArgs(),
       '-o', '-'
     ];
 
     childProcess = spawn(ytdlpPath, args, {
       stdio: ['ignore', 'pipe', 'pipe'],
-      shell: true,
+      shell: false,
       windowsHide: true
     });
 
@@ -1245,6 +1338,8 @@ app.get('/download-merged', (req, res) => {
     // fs.unlinkSync(filePath);
   });
 });
+
+startPotProvider();
 
 app.listen(PORT, () => {
   console.log(`API running at http://localhost:${PORT}`);

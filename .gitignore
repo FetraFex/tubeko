@@ -39,3 +39,10 @@ server/cookies.txt
 # platform-specific and replaced by the build, so it is never committed - the
 # Windows yt-dlp.exe stays tracked because it is the one already in the repo.
 server/yt-dlp
+
+# The PO-token provider scripts/setup-pot-provider.js fetches, and the yt-dlp
+# plugin that talks to it. Same reasoning as yt-dlp itself: platform-specific,
+# ~50 MB, and put in place by the build.
+server/bgutil-pot
+server/bgutil-pot.exe
+server/plugins/
