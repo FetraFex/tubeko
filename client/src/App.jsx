@@ -1,6 +1,6 @@
 import { useEffect } from "react"
 import { BrowserRouter as Router, Route, Routes, useLocation } from "react-router-dom"
-import Landing from "./components/landing"
+import Landing from "./components/Landing"
 import Legal from "./components/Legal"
 
 // React Router changes the URL without touching the scroll position, so a menu
