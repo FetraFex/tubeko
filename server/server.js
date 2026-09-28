@@ -233,6 +233,16 @@ const runYtDlpCommand = (args, options = {}) => {
 
 
 
+// Cheap liveness probe. It exists mainly for the keep-alive ping
+// (.github/workflows/keep-alive.yml) and any uptime monitor: Render's free
+// instance sleeps after about fifteen minutes without traffic, so something has
+// to knock periodically - and a check against the root would read a 404 as a
+// broken deploy rather than a healthy one. uptimeSeconds doubles as proof of
+// whether the instance has been kept awake or has just cold-started.
+app.get('/health', (req, res) => {
+  res.json({ status: 'ok', uptimeSeconds: Math.round(process.uptime()) });
+});
+
 // SSE endpoint for progress updates
 app.get('/download/progress/:id', (req, res) => {
   const { id } = req.params;

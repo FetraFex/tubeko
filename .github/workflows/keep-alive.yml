@@ -1,0 +1,44 @@
+name: Keep the server awake
+
+# Render's free instance spins down after roughly fifteen minutes without
+# traffic, and the next request then waits around fifty seconds for it to boot.
+# Pinging every ten minutes keeps it on the right side of that window.
+#
+# Two caveats about GitHub's scheduler, both documented rather than fixable:
+# runs can be delayed by several minutes when it is busy, and the workflow is
+# disabled after sixty days without repository activity - GitHub emails a
+# warning before that happens. A dedicated uptime monitor pings on a firmer
+# schedule and can alert on a state change instead of every single run.
+on:
+  schedule:
+    # Deliberately off the hour and off the sharp ten, where the scheduler is
+    # busiest and a delay is most likely.
+    - cron: '4,14,24,34,44,54 * * * *'
+  # Lets the ping be run by hand after a deploy, to warm the instance up.
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping /health
+        run: |
+          url=https://tubeko.onrender.com/health
+
+          # A cold start is exactly what this workflow exists to avoid, so the
+          # timeout has to outlast one: if the instance has already slept, the
+          # first request can take fifty seconds or more to answer.
+          code=$(curl -sS -o /tmp/health-body -w '%{http_code}' \
+            --max-time 120 --retry 2 --retry-delay 10 --retry-all-errors \
+            "$url" || true)
+
+          echo "GET $url -> $code"
+          cat /tmp/health-body 2>/dev/null || true
+          echo
+
+          if [ "$code" != "200" ]; then
+            echo "::error::expected 200 from $url, got ${code:-no response}"
+            exit 1
+          fi
