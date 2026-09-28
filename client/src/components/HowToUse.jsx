@@ -7,6 +7,11 @@ import dictionary from '../Context/Dictionnary'
 // choose the format, start the download.
 const STEP_ICONS = [faLink, faSliders, faDownload]
 
+// The screenshots those steps illustrate. They sit here rather than in the
+// dictionary because the same three serve every language - the dictionary holds
+// no paths, only words.
+const STEP_IMAGES = ['/images/htu-1.jpg', '/images/htu-2.jpg', '/images/htu-3.jpg']
+
 const HowToUse = () => {
   const { language } = useLanguage()
   const t = dictionary[language]
@@ -34,12 +39,19 @@ const HowToUse = () => {
               className='relative rounded-lg p-[2px] border-gradient-c group transition-all duration-300 hover:shadow-2xl hover:shadow-[#72ffce9f]'
             >
               <div className='features-card h-full rounded-lg px-5 py-6 text-white xl:p-8'>
-                {/* Image slot for the step. It renders the step's `image` path when the
-                    dictionary eventually provides one, and holds this empty frame
-                    (same 16:9 ratio as a screenshot) until then. */}
+                {/* Fixed 16:9 frame so the three cards keep the same shape whatever
+                    the screenshot's own proportions. object-contain shows each one
+                    whole: these are UI captures where cropping would cut off the very
+                    control the step is pointing at. */}
                 <div className='mb-5 aspect-video w-full overflow-hidden rounded-lg border border-white/10 bg-[#0f1112]'>
-                  {step.image ? (
-                    <img src={step.image} alt={step.title} loading='lazy' className='h-full w-full object-cover' />
+                  {STEP_IMAGES[index] ? (
+                    <img
+                      src={STEP_IMAGES[index]}
+                      alt={step.title}
+                      loading='lazy'
+                      decoding='async'
+                      className='h-full w-full object-contain'
+                    />
                   ) : (
                     <div className='flex h-full w-full items-center justify-center text-[#72ffce]/25 transition-colors duration-300 group-hover:text-[#72ffce]/45'>
                       <FontAwesomeIcon icon={faImage} className='text-4xl' />
