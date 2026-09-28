@@ -15,7 +15,7 @@ import { FFmpeg } from '@ffmpeg/ffmpeg'
 import coreURL from '@ffmpeg/core?url'
 import wasmURL from '@ffmpeg/core/wasm?url'
 
-const API = 'http://localhost:3000'
+import { API } from './api'
 
 // Loading the core pulls in a ~32MB wasm blob. It is only ever needed once per
 // page, so the promise is cached and shared by every item in a playlist.

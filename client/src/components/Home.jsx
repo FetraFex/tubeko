@@ -15,6 +15,7 @@ import { useLanguage } from '../Context/LanguageContext';
 import dictionary from '../Context/Dictionnary'
 import { QUALITY_OPTIONS, DEFAULT_QUALITY, qualityOption } from '../lib/quality'
 import { useDismissOnOutsideClick } from '../lib/useDismissOnOutsideClick'
+import { API } from '../lib/api'
 
 // The spark field is built once, at module scope. Because these element objects keep
 // their identity across renders, React skips the whole subtree - which is what stops
@@ -297,13 +298,13 @@ const Home = () => {
             };
 
             if (listId) {
-                const response = await axios.get(`http://localhost:3000/api/playlist/${listId}`);
+                const response = await axios.get(`${API}/api/playlist/${listId}`);
                 applyResponse(response.data);
                 if (!response.data.videos?.length) {
                     setErrorMessage("This playlist has no downloadable videos.");
                 }
             } else if (videoId) {
-                const response = await axios.get(`http://localhost:3000/api/video/${videoId}`);
+                const response = await axios.get(`${API}/api/video/${videoId}`);
                 applyResponse(response.data);
             } else {
                 setErrorMessage("Could not parse a video or playlist from that link.");

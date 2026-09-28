@@ -20,10 +20,24 @@ const activeDownloads = new Map(); // Track active downloads
 const app = express()
 const PORT = process.env.PORT || 3000
 
+// The client is served from a different origin depending on where it runs:
+// Vite in dev, whatever host it is deployed to in production. Anything extra is
+// listed in ALLOWED_ORIGINS, comma-separated, e.g.
+// ALLOWED_ORIGINS=https://tubeko.vercel.app - without that entry the deployed
+// client would reach the server but be refused the response.
+const ALLOWED_ORIGINS = [
+  'http://localhost:5173',
+  'http://localhost:5174',
+  ...(process.env.ALLOWED_ORIGINS || '')
+    .split(',')
+    .map((origin) => origin.trim())
+    .filter(Boolean),
+];
+
 // Content-Length is not a CORS-safelisted response header, so the browser can
 // only read it (needed for download progress) if it is explicitly exposed.
 app.use(cors({
-  origin: ['http://localhost:5173', 'http://localhost:5174'],
+  origin: ALLOWED_ORIGINS,
   exposedHeaders: [
     'Content-Length', 'Content-Range', 'Accept-Ranges',
     // /download/full reports which quality it actually used when it had to

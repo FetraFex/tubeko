@@ -21,6 +21,7 @@ import {
 } from '../lib/formatSelection';
 import { fallbackNotice, qualityOption, resolveVideoQuality } from '../lib/quality';
 import { useDismissOnOutsideClick } from '../lib/useDismissOnOutsideClick';
+import { API } from '../lib/api';
 
 // Shared by both entries of the row's download menu. Mirrors the hero's quality selector
 // so the two menus read as the same control.
@@ -66,7 +67,7 @@ const Video = forwardRef(({ title, thumbnail, videoId, duration, quality, onComp
 
     // Metadata for the current video: title plus every downloadable format.
     const fetchFormats = async () => {
-        const response = await fetch(`http://localhost:3000/videoInfo?url=${encodeURIComponent("https://www.youtube.com/watch?v=" + videoId)}`);
+        const response = await fetch(`${API}/videoInfo?url=${encodeURIComponent("https://www.youtube.com/watch?v=" + videoId)}`);
         if (!response.ok) {
             throw new Error(`HTTP error! status: ${response.status}`);
         }
@@ -319,7 +320,7 @@ const Video = forwardRef(({ title, thumbnail, videoId, duration, quality, onComp
         setSize({ downloaded: '', total: '' });
 
         const response = await fetch(
-            `http://localhost:3000/download/full?url=${encodeURIComponent("https://www.youtube.com/watch?v=" + videoId)}&videoItag=${videoItag}&audioItag=${audioItag}&quality=${encodeURIComponent(quality)}`
+            `${API}/download/full?url=${encodeURIComponent("https://www.youtube.com/watch?v=" + videoId)}&videoItag=${videoItag}&audioItag=${audioItag}&quality=${encodeURIComponent(quality)}`
         );
 
         if (!response.ok) {
