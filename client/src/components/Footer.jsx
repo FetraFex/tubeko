@@ -83,7 +83,7 @@ const Footer = () => {
       </div>
 
       <div className=' bg-[#0c0c0c] flex flex-col-reverse sm:flex-row gap-5 justify-between py-4 text-white xl:px-36 px-3'>
-        <p className='text-xs text-white/45 sm:text-sm xl:text-base'>© 2025 Tubeko. {t.copyright}</p>
+        <p className='text-xs text-white/45 sm:text-sm xl:text-base'>© 2026 Tubeko. {t.copyright}</p>
         <Link
           to='/terms'
           className='text-xs font-medium text-white/45 transition-colors duration-200 hover:text-[#a7ffe2] sm:text-sm xl:text-base'
