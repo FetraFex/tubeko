@@ -10,6 +10,16 @@ html {
   scroll-behavior: smooth;
 }
 
+/* One playlist row: a 240px thumbnail beside its text column, plus the card's own
+   padding. This is what lets the panel below be sized without measuring a real row -
+   a row's reported height drops to its placeholder whenever the browser skips its
+   off-screen contents, which is what used to shrink the panel on scroll. */
+:root {
+  --playlist-row: 200px;
+  /* Must match gap-y-6 on the panel. */
+  --playlist-gap: 1.5rem;
+}
+
 /* styles.css or inside a <style> tag */
 .custom-scrollbar::-webkit-scrollbar {
   width: 6px;
@@ -136,10 +146,24 @@ html {
   /* One playlist row. content-visibility lets the browser skip style, layout and paint
      for the rows scrolled out of the panel, which is what keeps a long playlist smooth;
      contain-intrinsic-size keeps their place in the scrollbar by starting from the last
-     size the browser remembers for them (168px is the height of a plain row). */
+     size the browser remembers for them.
+
+     flex: none plus the min-height hold every row at its own size: the panel is a
+     column flex container with a capped height, and its items otherwise shrink to fit
+     it, which squashed the rows below the fold into thin strips. min-height also applies
+     while a row's contents are skipped, so an off-screen row keeps its place too. */
   .playlist-card {
+    flex: none;
+    min-height: var(--playlist-row);
     content-visibility: auto;
-    contain-intrinsic-size: auto 168px;
+    contain-intrinsic-size: auto var(--playlist-row);
+  }
+
+  /* The panel shows six rows and scrolls the rest. The height is computed from the row
+     size above instead of from a measured row, so it is the same on every screen and
+     never changes while the list is scrolled. */
+  .playlist-viewport {
+    max-height: calc(6 * var(--playlist-row) + 5 * var(--playlist-gap));
   }
 
   .hero-scrim {

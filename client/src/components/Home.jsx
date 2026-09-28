@@ -132,37 +132,9 @@ const Home = () => {
         }
     }, [])
 
-    // The playlist panel shows ten rows and scrolls the rest. Its cap is derived from a
-    // real row instead of the viewport, so the panel is the same size on any screen and
-    // never grows with the playlist.
-    const resultsListRef = useRef(null)
-    const [listMaxHeight, setListMaxHeight] = useState(undefined)
-
-    useLayoutEffect(() => {
-        const list = resultsListRef.current
-        const firstRow = list?.firstElementChild
-        if (!firstRow) {
-            setListMaxHeight(undefined)
-            return
-        }
-
-        const ROWS = 10
-        const GAP_PX = 24 // matches gap-y-6 below
-
-        const update = () => {
-            const rowHeight = firstRow.getBoundingClientRect().height
-            if (!rowHeight) return
-            const next = Math.round(rowHeight * ROWS + GAP_PX * (ROWS - 1))
-            // Ignore sub-pixel churn so the observer cannot feed back into itself.
-            setListMaxHeight(prev => (prev !== undefined && Math.abs(prev - next) < 2 ? prev : next))
-        }
-
-        update()
-        // The first row settles once its thumbnail loads, so keep watching its height.
-        const observer = new ResizeObserver(update)
-        observer.observe(firstRow)
-        return () => observer.disconnect()
-    }, [videos])
+    // The playlist panel shows six rows and scrolls the rest. Its height comes from the
+    // .playlist-viewport class in index.css rather than from a measured row, so it is the
+    // same size everywhere and does not change while the list is scrolled.
 
     // Automatically trigger the download of the first video
     useEffect(() => {
@@ -621,11 +593,11 @@ const Home = () => {
                                         </motion.div>}
                                 </AnimatePresence>
                             </div>
+                            {/* Six rows tall and fixed: the playlist scrolls inside the panel
+                                instead of resizing it. */}
                             <div
-                                ref={resultsListRef}
                                 onScroll={handleListScroll}
-                                style={{ maxHeight: listMaxHeight }}
-                                className='mt-5 w-full lg:w-3/5 xl:w-[54%] 2xl:w-[46%] flex custom-scrollbar flex-col gap-y-6 overflow-y-auto'
+                                className='playlist-viewport mt-5 w-full lg:w-3/5 xl:w-[54%] 2xl:w-[46%] flex custom-scrollbar flex-col gap-y-6 overflow-y-auto'
                             >
                                 {videos.slice(0, renderedCount).map((video, index) => (
                                     <Video
