@@ -46,7 +46,7 @@ const dictionary = {
             backHome: "Back to home",
             onthispage: "On this page",
             terms: "Terms & Conditions",
-            termsIntro: "These Terms & Conditions (\"Terms\") govern your use of Tubeko (\"Tubeko\", \"we\", \"us\"), a free web service for downloading and converting publicly available YouTube videos and playlists. By accessing or using Tubeko you agree to be bound by these Terms. If you do not agree, please do not use the service.",
+            termsIntro: "These Terms & Conditions (\"Terms\") govern your use of Tubeko (\"Tubeko\", \"we\", \"us\"), a free web service for downloading and converting publicly available YouTube videos and playlists, operated by Nyora. By accessing or using Tubeko you agree to be bound by these Terms. If you do not agree, please do not use the service.",
             termsSections: [
                 {
                     title: "1. Acceptance of the Terms",
@@ -84,7 +84,7 @@ const dictionary = {
                 {
                     title: "5. Copyright Infringement and Takedowns",
                     body: [
-                        "If you believe your copyrighted work has been made available or misused through Tubeko, contact us at nyora.help@gmail.com with enough detail for us to act: identification of the work, the URL or material involved, your contact information, and a statement of good-faith belief and authority.",
+                        "If you believe your copyrighted work has been made available or misused through Tubeko, contact us at nyora.help@gmail.com with enough detail for us to act: identification of the work, the URL or material involved, your contact information, a statement of good-faith belief that the use is not authorised, and a statement that the information is accurate and that you are authorised to act on the rights holder's behalf.",
                         "We review every request and will remove access or take other appropriate action where a claim is valid."
                     ]
                 },
@@ -129,7 +129,7 @@ const dictionary = {
                 {
                     title: "1. Overview",
                     body: [
-                        "Tubeko is a free tool for downloading YouTube videos and playlists. This policy applies to the Tubeko website and its processing of your data. It covers what we collect, how we use it, and your rights over it."
+                        "Tubeko is a free tool for downloading YouTube videos and playlists, operated by Nyora. This policy applies to the Tubeko website and describes how Nyora handles your data - what we collect, how we use it, and your rights over it."
                     ]
                 },
                 {
@@ -138,7 +138,7 @@ const dictionary = {
                         "Tubeko has no accounts, no sign-up, and no newsletter, so we never ask for your name, email, or payment details.",
                         "- Requests you make: the YouTube URL you paste, the format and quality you choose, and the technical details needed to fetch and deliver the file (video identifiers, itag parameters, playlist identifiers).",
                         "- Technical logs: our servers may temporarily record the requesting IP address, user agent, and timestamps in ordinary access logs kept for security and stability.",
-                        "- Local browser storage: your language choice and interface preferences are kept in your browser so the site remembers them between visits."
+                        "- Cookies and device storage: the site sets no cookies and writes nothing to your browser's storage - there is no account or profile to remember."
                     ]
                 },
                 {
@@ -154,14 +154,15 @@ const dictionary = {
                 {
                     title: "4. Cookies and Local Storage",
                     body: [
-                        "Tubeko does not set advertising or tracking cookies. The only persistent storage is local to your browser and holds functional preferences such as your selected interface language. Clearing your browser storage removes it.",
+                        "Tubeko does not set cookies and does not write to local storage, session storage, or IndexedDB: nothing is kept on your device once the page is closed. Preferences such as the interface language are held in the open page and last only as long as it stays open.",
                         "If our hosting later adds strictly necessary or analytics cookies, this policy will be updated before that happens."
                     ]
                 },
                 {
                     title: "5. Third-Party Services",
                     body: [
-                        "To do its job, Tubeko necessarily talks to YouTube when you submit a link. Your request reaches YouTube's public endpoints, which means YouTube (Google) receives your IP address and request details under Google's own privacy policy. We cannot control that processing, but we send the minimum needed to resolve your download.",
+                        "When you submit a link, it is our servers - not your browser - that contact YouTube to resolve the video and stream it, so for the download itself YouTube sees our server's address rather than yours, and we send only what a download needs.",
+                        "Your browser does load the video thumbnails directly from YouTube's image servers, so Google receives your IP address for those requests under Google's own privacy policy, which we do not control.",
                         "Otherwise we do not embed third-party analytics or advertising scripts."
                     ]
                 },
@@ -171,12 +172,12 @@ const dictionary = {
                         "Files are streamed and converted on the fly and are not stored on our servers after delivery. Request data lives only as long as needed to complete your download.",
                         "Server access logs, where kept, are short-lived and used only for security and stability; we do not use them to profile you."
                     ]
-                    },
+                },
                 {
                     title: "7. Your Rights",
                     body: [
-                        "Because we hold almost no personal data, most data-protection rights (such as access, rectification, erasure, and objection under the GDPR or similar laws) are straightforward to honour: write to nyora.help@gmail.com and we will help.",
-                        "You can also exercise control directly: use the service without providing personal data, clear your browser storage at any time, or simply stop using Tubeko."
+                        "Because we hold almost no personal data, most data-protection rights - access, rectification, erasure, objection under the GDPR, Madagascar's Law No. 2014-038 on the protection of personal data, or similar laws - are straightforward to honour: write to nyora.help@gmail.com and we will help.",
+                        "You can also exercise control directly: use the service without providing personal data, or simply stop using Tubeko - there is nothing stored to erase."
                     ]
                 },
                 {
@@ -188,7 +189,7 @@ const dictionary = {
                 {
                     title: "9. Security",
                     body: [
-                        "We take reasonable technical and organisational measures to protect the service and any data passing through it, served over HTTPS. No method of transmission over the Internet is perfectly secure, so we cannot guarantee absolute security."
+                        "We take reasonable technical and organisational measures to protect the service and any data passing through it. No method of transmission over the Internet is perfectly secure, so we cannot guarantee absolute security."
                     ]
                 },
                 {
@@ -252,7 +253,7 @@ const dictionary = {
             backHome: "Hiverina any an-tokantrano",
             onthispage: "Ao amin'ity pejy ity",
             terms: "Fepetra sy fitsipika",
-            termsIntro: "Ireo fepetra sy fitsipika (\"Fepetra\") dia mifehy ny fampiasanao ny Tubeko (\"Tubeko\", \"izahay\"), serivisy aterineto maimaim-poana ahafahana maka sy mamadika horonantsary sy andian-koronantsary YouTube misokatra ho an'ny rehetra. Rehefa mampiasa ny Tubeko ianao dia manaiky ny ho fehezin'ireo Fepetra ireo. Raha tsy manaiky azy, aza mampiasa ny serivisy.",
+            termsIntro: "Ireo fepetra sy fitsipika (\"Fepetra\") dia mifehy ny fampiasanao ny Tubeko (\"Tubeko\", \"izahay\"), serivisy aterineto maimaim-poana ahafahana maka sy mamadika horonantsary sy andian-koronantsary YouTube misokatra ho an'ny rehetra, ary ny Nyora no mitantana azy. Rehefa mampiasa ny Tubeko ianao dia manaiky ny ho fehezin'ireo Fepetra ireo. Raha tsy manaiky azy, aza mampiasa ny serivisy.",
             termsSections: [
                 {
                     title: "1. Fanekena ny Fepetra",
@@ -290,7 +291,7 @@ const dictionary = {
                 {
                     title: "5. Fanitsakitsahana ny zon'ny mpanoratra",
                     body: [
-                        "Raha mihevitra ianao fa voasarika na nampiasa tsy ara-dalàna ny asanao arovana amin'ny alalan'ny Tubeko, dia soraty any amin'ny nyora.help@gmail.com miaraka amin'ny antsipiriany ampy ahafahana mandinika: famaritana ny asa, ny URL na ny zavatra voakasika, ny antsipiriany momba anao, ary ny filazana fa mino am-pahatsorana ianao.",
+                        "Raha mihevitra ianao fa voasarika na nampiasa tsy ara-dalàna ny asanao arovana amin'ny alalan'ny Tubeko, dia soraty any amin'ny nyora.help@gmail.com miaraka amin'ny antsipiriany ampy ahafahana mandinika: famaritana ny asa, ny URL na ny zavatra voakasika, ny antsipiriany momba anao, ny filazana fa mino am-pahatsorana fa tsy ekena ilay fampiasana, ary ny filazana fa marina ny antsipiriany sy fa tompon'andraikitra ianao handeha ho an'ny tompon'zo.",
                         "Dinihina ny fangatahana rehetra ary esorina ny fidirana na raisina ny hetsika mety rehefa marina ny fitakiana."
                     ]
                 },
@@ -318,7 +319,7 @@ const dictionary = {
                 {
                     title: "9. Lalàna mifehy",
                     body: [
-                        "Ireo Fepetra ireo dia fehezin'ny lalàna malagasy, tsy manavaka ny fitsipika momba ny fifanolanana lalàna. Ny fifanolanana rehetra avy amin'izy ireo dia ao ambany fahefan'ny fitsarana mahefa amin'ity firenena ity, afa-tsy raha ny lalàna tsy azo ovana dia manome anao toeram-pitsarana hafa.",
+                        "Ireo Fepetra ireo dia fehezin'ny lalàna malagasy, tsy manavaka ny fitsipika momba ny fifanolanana lalàna. Ny fifanolanana rehetra avy amin'izy ireo dia ao ambany fahefan'ny fitsarana manan-kery amin'ity firenena ity, afa-tsy raha ny lalàna tsy azo ovana dia manome anao toeram-pitsarana hafa.",
                         "Raha hita fa tsy azo ampiharina ny andinin-teny iray amin'ireo Fepetra, dia mijanona manan-kery ny andinin-teny sisa."
                     ]
                 },
@@ -335,7 +336,7 @@ const dictionary = {
                 {
                     title: "1. Famintinana",
                     body: [
-                        "Ny Tubeko dia fitaovana maimaim-poana ahafahana maka horonantsary sy andian-koronantsary YouTube. Ity politika ity dia mihatra amin'ny tranonkala Tubeko sy ny fandaminana ny angonao. Manazava izay angonina, ny fampiasana azy ary ny zonao amin'izy ireo."
+                        "Ny Tubeko dia fitaovana maimaim-poana ahafahana maka horonantsary sy andian-koronantsary YouTube, izay mitantana azy ny Nyora. Ity politika ity dia mihatra amin'ny tranonkala Tubeko sy ny fandaminana ny angonao ataon'ny Nyora. Manazava izay angonina, ny fampiasana azy ary ny zonao amin'izy ireo."
                     ]
                 },
                 {
@@ -344,7 +345,7 @@ const dictionary = {
                         "Tsy misy kaonty, fanoratana anarana na fanangonana angona manokana ny Tubeko, ka tsy mangataka anarana, mailaka na angona momba ny fandoavam-bola mihitsy isika.",
                         "- Ny fangatahanao: ny URL YouTube apetrakao, ny endrika sy ny kalitao safidinao, ary ny antsipiriany ara-teknika ilaina haka sy handefasana ny rakitra (famantarana ny video, parametra itag, famantarana ny playlist).",
                         "- Diary ara-teknika: mety mitahiry vonjimaika ny IP, ny user agent ary ny ora amin'ny diary fidirana tsotra, tazonina ho an'ny fiarovana sy ny fahamarinan'ny serivisy.",
-                        "- Tahiry eo an-toerana ao amin'ny navigateur: ny fiteny safidinao sy ny safidin'ny endrika dia tazonina ao amin'ny navigateur-nao mba ho tadidy amin'ny fitsidihana manaraka."
+                        "- Cookie sy tahiry ao amin'ny fitaovana: tsy mametraka cookie ny tranonkala sy tsy manoratra amin'ny tahiry navigateur na IndexedDB - tsy misy kaonty na profil hamaritana."
                     ]
                 },
                 {
@@ -360,14 +361,15 @@ const dictionary = {
                 {
                     title: "4. Cookies sy fitahirizana eo an-toerana",
                     body: [
-                        "Tsy mametraka cookie ara-barotra na fanaraha-maso ny Tubeko. Ny fitahirizana maharitra tokana dia ao amin'ny navigateur-nao ihany, mitazona safidy ara-teknika toy ny fiteny. Ny famafana ny tahiry ao amin'ny navigateur no manala azy.",
+                        "Tsy mametraka cookie na manoratra amin'ny tahiry eo an-toerana, tahiry session, na IndexedDB ny Tubeko: tsy misy zavatra tazonina ao amin'ny fitaovanao rehefa vonona ny pejy. Ny safidy toy ny fiteny dia eo amin'ny pejy misokatra ihany ary velona amin'ny mandehany azy fotsiny.",
                         "Raha toa ka manampy cookie ilaina na statistika ny mpampiantrano rehefa mandroso ny fotoana, dia havaozina ity politika ity alohan'izay."
                     ]
                 },
                 {
                     title: "5. Serivisy an'ny hafa",
                     body: [
-                        "Vao mandefa rohy ianao dia miresaka amin'ny YouTube ny Tubeko, satria izay no fomba fiasany. Ny fangatahanao dia mahatratra ny serivisin'ny YouTube, ka ny YouTube (Google) no mahazo ny IP-nao sy ny antsipirian'ny fangatahana araka ny politikan'izy ireo. Tsy manapaka izany fanodinana izany isika, fa ny kely indrindra ihany no alefa mba hahazoana ny fampidinana.",
+                        "Rehefa mandefa rohy ianao, ny mpizara tsika no miresaka amin'ny YouTube hanakarana sy handefa ny horonantsary - fa tsy ny navigateur-nao. Amin'ny fampidinana mihitsy, ny adiresy ampan'ny mpizara tsika no mahita ny YouTube fa tsy ny anao, ary ny kely indrindra ihany no alefa.",
+                        "Fa ny sary kisaky ny horonantsary dia akany mivantana ny navigateur-nao avy any amin'ny mpizara sary an'ny YouTube, ka mahita ny IP-nao ny Google amin'ireo fangatahana ireo araka ny politikan-tsiambaratelontsika izay tsy azontsika fanenehana.",
                         "Afa-tsy izany, tsy misy script an'ny hafa na statistika na dokam-barotra ampidirina."
                     ]
                 },
@@ -381,8 +383,8 @@ const dictionary = {
                 {
                     title: "7. Ny zonao",
                     body: [
-                        "Satria vitsy dia vitsy ny angona manokana tazonintsika, ny ankamaroan'ny zo (fidirana, fanitsiana, famafana, fanoherana araka ny GDPR na lalàna mitovy amin'izany) dia mora tanterahina: soraty any amin'ny nyora.help@gmail.com dia hanampy anao izahay.",
-                        "Azonao atao koa ny mibaiko mivantana: mampiasa ny serivisy tsy misy angona manokana, famafana ny tahiry ao amin'ny navigateur amin'ny fotoana rehetra, na mijanona tsy mampiasa ny Tubeko."
+                        "Satria vitsy dia vitsy ny angona manokana tazonintsika, ny ankamaroan'ny zo (fidirana, fanitsiana, famafana, fanoherana araka ny GDPR, ny lalàna 2014-038 momba ny fiarovana ny angona manokana any Madagasikara, na lalàna mitovy amin'izany) dia mora tanterahina: soraty any amin'ny nyora.help@gmail.com dia hanampy anao izahay.",
+                        "Azonao atao koa ny mibaiko mivantana: mampiasa ny serivisy tsy misy angona manokana, na mijanona tsy mampiasa ny Tubeko - tsy misy zavatra tazonina hafaingana."
                     ]
                 },
                 {
@@ -394,7 +396,7 @@ const dictionary = {
                 {
                     title: "9. Fiarovana",
                     body: [
-                        "Mampiasa fepetra ara-teknika sy ara-pandaminana mety isika hiarovana ny serivisy sy ny angona mandalo, alefa amin'ny HTTPS. Tsy misy fomba fandefasana amin'ny aterineto azo antoka tanteraka, ka tsy azo antoka ny fiarovana tanteraka."
+                        "Mampiasa fepetra ara-teknika sy ara-pandaminana mety isika hiarovana ny serivisy sy ny angona mandalo. Tsy misy fomba fandefasana amin'ny aterineto azo antoka tanteraka, ka tsy azo antoka ny fiarovana tanteraka."
                     ]
                 },
                 {
@@ -473,7 +475,7 @@ const dictionary = {
             backHome: "Retour à l’accueil",
             onthispage: "Sur cette page",
             terms: "Conditions générales",
-            termsIntro: "Les présentes Conditions générales (\"Conditions\") régissent votre utilisation de Tubeko (\"Tubeko\", \"nous\"), un service web gratuit de téléchargement et de conversion de vidéos et de playlists YouTube publiquement accessibles. En accédant à Tubeko ou en l’utilisant, vous acceptez d’être lié par ces Conditions. Si vous n’êtes pas d’accord, veuillez ne pas utiliser le service.",
+            termsIntro: "Les présentes Conditions générales (\"Conditions\") régissent votre utilisation de Tubeko (\"Tubeko\", \"nous\"), un service web gratuit de téléchargement et de conversion de vidéos et de playlists YouTube publiquement accessibles, exploité par Nyora. En accédant à Tubeko ou en l’utilisant, vous acceptez d’être lié par ces Conditions. Si vous n’êtes pas d’accord, veuillez ne pas utiliser le service.",
             termsSections: [
                 {
                     title: "1. Acceptation des Conditions",
@@ -511,7 +513,7 @@ const dictionary = {
                 {
                     title: "5. Contrefaçon et retraits",
                     body: [
-                        "Si vous estimez que votre œuvre protégée a été rendue disponible ou utilisée à tort via Tubeko, contactez-nous à nyora.help@gmail.com avec suffisamment de détails pour agir : identification de l’œuvre, URL ou matériau concerné, vos coordonnées, et une déclaration de croyance de bonne foi et de qualité.",
+                        "Si vous estimez que votre œuvre protégée a été rendue disponible ou utilisée à tort via Tubeko, contactez-nous à nyora.help@gmail.com avec suffisamment de détails pour agir : identification de l’œuvre, URL ou matériau concerné, vos coordonnées, une déclaration de bonne foi que l'utilisation n'est pas autorisée, et une déclaration affirmant que les informations sont exactes et que vous êtes habilité à agir pour le compte du titulaire des droits.",
                         "Nous examinons chaque demande et retirerons l’accès ou prendrons toute autre mesure appropriée lorsque la réclamation est fondée."
                     ]
                 },
@@ -539,7 +541,7 @@ const dictionary = {
                 {
                     title: "9. Droit applicable",
                     body: [
-                        "Les présentes Conditions sont régies par le droit malgache, sans égard aux règles de conflit de lois. Tout litige découlant de celles-ci relève de la compétence exclusive des tribunaux compétents de ce pays, sauf si la loi locale impérative vous accorde un autre forum.",
+                        "Les présentes Conditions sont régies par le droit malgache, sans égard aux règles de conflit de lois. Tout litige découlant de celles-ci relève de la compétence exclusive des tribunaux de ce pays, sauf si la loi locale impérative vous accorde un autre forum.",
                         "Si une disposition de ces Conditions est jugée inapplicable, les autres dispositions restent pleinement en vigueur."
                     ]
                 },
@@ -556,7 +558,7 @@ const dictionary = {
                 {
                     title: "1. Aperçu",
                     body: [
-                        "Tubeko est un outil gratuit de téléchargement de vidéos et de playlists YouTube. Cette politique s’applique au site Tubeko et à son traitement de vos données. Elle couvre ce que nous collectons, comment nous l’utilisons et vos droits à son sujet."
+                        "Tubeko est un outil gratuit de téléchargement de vidéos et de playlists YouTube, exploité par Nyora. Cette politique s’applique au site Tubeko et décrit la manière dont Nyora traite vos données : ce que nous collectons, comment nous les utilisons et vos droits à leur sujet."
                     ]
                 },
                 {
@@ -565,7 +567,7 @@ const dictionary = {
                         "Tubeko n’a ni compte, ni inscription, ni newsletter : nous ne vous demandons jamais votre nom, votre e-mail ni vos coordonnées bancaires.",
                         "- Requêtes que vous effectuez : l’URL YouTube collée, le format et la qualité choisis, et les détails techniques nécessaires pour récupérer et livrer le fichier (identifiants de vidéo, paramètres itag, identifiants de playlist).",
                         "- Journaux techniques : nos serveurs peuvent temporairement enregistrer l’adresse IP, l’agent utilisateur et l’horodatage dans des journaux d’accès ordinaires, conservés pour la sécurité et la stabilité.",
-                        "- Stockage local du navigateur : votre langue d’interface et vos préférences sont conservées dans votre navigateur pour que le site s’en souvienne entre vos visites."
+                        "- Cookies et stockage de l’appareil : le site ne dépose aucun cookie et n’écrit rien dans le stockage de votre navigateur - il n’y a ni compte ni profil à mémoriser."
                     ]
                 },
                 {
@@ -581,14 +583,15 @@ const dictionary = {
                 {
                     title: "4. Cookies et stockage local",
                     body: [
-                        "Tubeko ne dépose pas de cookies publicitaires ou de suivi. Le seul stockage persistant est local à votre navigateur et contient des préférences fonctionnelles, comme la langue d’interface choisie. Vider le stockage de votre navigateur suffit à le supprimer.",
+                        "Tubeko ne dépose aucun cookie et n’écrit ni dans le stockage local, ni dans le stockage de session, ni dans IndexedDB : rien n’est conservé sur votre appareil une fois la page fermée. Les préférences comme la langue d’interface vivent dans la page ouverte et n’existent que tant qu’elle l’est.",
                         "Si notre hébergement ajoute un jour des cookies strictement nécessaires ou analytiques, cette politique sera mise à jour avant."
                     ]
                 },
                 {
                     title: "5. Services tiers",
                     body: [
-                        "Pour fonctionner, Tubeko échange nécessairement avec YouTube lorsque vous soumettez un lien. Votre requête atteint les points d’accès publics de YouTube : YouTube (Google) reçoit donc votre adresse IP et les détails de la requête, selon la politique de confidentialité de Google. Nous ne maîtrisons pas ce traitement, mais nous n’envoyons que le strict nécessaire pour résoudre votre téléchargement.",
+                        "Lorsque vous soumettez un lien, ce sont nos serveurs - et non votre navigateur - qui contactent YouTube pour résoudre la vidéo et la relayer : pour le téléchargement lui-même, YouTube voit l’adresse de notre serveur plutôt que la vôtre, et nous n’envoyons que le strict nécessaire.",
+                        "Votre navigateur charge en revanche les vignettes directement depuis les serveurs d’images de YouTube : Google reçoit donc votre adresse IP pour ces requêtes, selon sa propre politique de confidentialité que nous ne contrôlons pas.",
                         "Sinon, nous n’intégrons aucun script tiers d’analyse ou de publicité."
                     ]
                 },
@@ -602,8 +605,8 @@ const dictionary = {
                 {
                     title: "7. Vos droits",
                     body: [
-                        "Comme nous détenons très peu de données personnelles, la plupart des droits (accès, rectification, effacement, opposition au titre du RGPD ou de lois similaires) sont simples à honorer : écrivez à nyora.help@gmail.com et nous vous aiderons.",
-                        "Vous pouvez aussi reprendre le contrôle directement : utiliser le service sans fournir de données personnelles, vider le stockage de votre navigateur à tout moment, ou cesser simplement d’utiliser Tubeko."
+                        "Comme nous détenons très peu de données personnelles, la plupart des droits - accès, rectification, effacement, opposition au titre du RGPD, de la loi malgache n° 2014-038 sur la protection des données à caractère personnel, ou de lois similaires - sont simples à honorer : écrivez à nyora.help@gmail.com et nous vous aiderons.",
+                        "Vous pouvez aussi reprendre le contrôle directement : utiliser le service sans fournir de données personnelles, ou cesser simplement d’utiliser Tubeko - il n’y a rien de stocké à effacer."
                     ]
                 },
                 {
@@ -615,7 +618,7 @@ const dictionary = {
                 {
                     title: "9. Sécurité",
                     body: [
-                        "Nous appliquons des mesures techniques et organisationnelles raisonnables pour protéger le service et les données qui le traversent, servi en HTTPS. Aucune transmission sur Internet n’est parfaitement sûre : nous ne pouvons garantir une sécurité absolue."
+                        "Nous appliquons des mesures techniques et organisationnelles raisonnables pour protéger le service et les données qui le traversent. Aucune transmission sur Internet n’est parfaitement sûre : nous ne pouvons garantir une sécurité absolue."
                     ]
                 },
                 {
