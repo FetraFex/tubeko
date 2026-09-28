@@ -74,6 +74,59 @@ const formatSize = (bytes) => {
   return `${value.toFixed(value < 10 ? 2 : 1)}${units[i]}`;
 };
 
+// YouTube reports a video's length as an ISO 8601 duration ("PT1H2M3S").
+const parseIsoDuration = (iso) => {
+  const m = String(iso || '').match(/^P(?:(\d+)D)?T(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?$/);
+  if (!m) return null;
+  const [, days, hours, minutes, seconds] = m;
+  return (Number(days) || 0) * 86400 + (Number(hours) || 0) * 3600 + (Number(minutes) || 0) * 60 + (Number(seconds) || 0);
+};
+
+// Seconds to the clock the playlist rows show: "5:48", or "1:02:03" once it runs
+// past an hour. Null in, null out, so an unknown length stays unknown.
+const formatDuration = (seconds) => {
+  if (!Number.isFinite(seconds) || seconds < 0) return null;
+  const hours = Math.floor(seconds / 3600);
+  const minutes = Math.floor((seconds % 3600) / 60);
+  const secs = Math.floor(seconds % 60);
+  const clock = `${minutes}:${String(secs).padStart(2, '0')}`;
+  return hours ? `${hours}:${String(minutes).padStart(2, '0')}:${String(secs).padStart(2, '0')}` : clock;
+};
+
+// playlistItems carries the titles but no length, so the lengths are asked for
+// separately, in batches of 50 (the API's own ceiling) to keep the request count
+// proportional to the list rather than to the video count. A batch that fails
+// costs only the clock labels on those rows, never the playlist itself.
+const attachDurations = async (videos) => {
+  for (let i = 0; i < videos.length; i += 50) {
+    const batch = videos.slice(i, i + 50);
+    try {
+      const response = await axios.get(`${BASE_URL}/videos`, {
+        params: {
+          part: 'contentDetails',
+          id: batch.map((video) => video.videoId).join(','),
+          key: API_KEY,
+        },
+      });
+
+      const secondsById = new Map((response.data.items || []).map((item) => [
+        item.id,
+        parseIsoDuration(item.contentDetails?.duration),
+      ]));
+
+      for (const video of batch) {
+        const seconds = secondsById.get(video.videoId);
+        video.durationSeconds = Number.isFinite(seconds) ? seconds : null;
+        video.duration = formatDuration(seconds);
+      }
+    } catch (error) {
+      console.warn(`Video durations unavailable for ${batch.length} videos:`, error.message);
+    }
+  }
+
+  return videos;
+};
+
 // Parse one yt-dlp progress line, e.g.
 //   [download]  12.3% of    6.70MiB at  481.32KiB/s ETA 00:11
 const parseYtDlpProgress = (line) => {
@@ -272,6 +325,10 @@ app.get('/api/playlist/:playlistId', async (req, res) => {
       console.warn(`Playlist metadata unavailable for ${playlistId}:`, metaError.message);
     }
 
+    // Lengths last, after the list is known to be good, so a slow or failed
+    // duration lookup cannot hold back the titles.
+    await attachDurations(videos);
+
     // Send the combined list of videos as the response
     res.json({
       videos,
@@ -316,7 +373,9 @@ app.get('/api/video/:videoId', async (req, res) => {
   try {
     const response = await axios.get(`${BASE_URL}/videos`, {
       params: {
-        part: 'snippet',
+        // contentDetails is what carries the length, and this route already makes
+        // exactly one videos.list call, so the clock comes free.
+        part: 'snippet,contentDetails',
         id: videoId,
         key: API_KEY,
       },
@@ -325,12 +384,15 @@ app.get('/api/video/:videoId', async (req, res) => {
     if (response.data.items && response.data.items.length > 0) {
       const item = response.data.items[0];
       const thumbnail = item.snippet.thumbnails.medium ? item.snippet.thumbnails.medium.url : (item.snippet.thumbnails.default ? item.snippet.thumbnails.default.url : '');
-      
+      const seconds = parseIsoDuration(item.contentDetails?.duration);
+
       res.json({
         videos: [{
           title: item.snippet.title,
           videoId: item.id,
           thumbnail: thumbnail,
+          durationSeconds: Number.isFinite(seconds) ? seconds : null,
+          duration: formatDuration(seconds),
         }],
         totalVideos: 1,
         // Same header fields as the playlist route so the client renders one shape.

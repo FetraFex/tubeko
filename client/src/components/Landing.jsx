@@ -11,6 +11,7 @@ const Landing = () => {
     <div>
         <Navbar />
         <Home />
+        <HowToUse />
         <Features />
         <SupportedFormats />
         <Footer />

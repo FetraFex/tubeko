@@ -1,7 +1,7 @@
 // Dictionary.js
 const dictionary = {
     en: {
-        menu: ["Home", "How to Use/FAQ", "Features", "Supported Formats"],
+        menu: ["Home", "How to Use", "Features", "Supported Formats"],
         lang: {
             en: "English",
             mg: "Malagasy",
@@ -31,6 +31,20 @@ const dictionary = {
             }, {
                 title: "3. Extra Functionalities",
                 content: ["- Support for multiple languages", "- Works on all devices (PC, mobile, tablet)", "- No registration required, 100% free to use"]
+            }
+        ],
+        howToUse: "How to Use",
+        howToUseDescription: "Three steps between a YouTube link and a file on your device.",
+        howToUseSteps: [
+            {
+                title: "Paste the link",
+                content: "Copy the URL of a YouTube video or playlist and paste it into the field at the top of this page. Tubeko reads the link and lists every video it contains."
+            }, {
+                title: "Choose the format",
+                content: "Pick an MP4 resolution in the Quality menu, or switch to MP3 to keep the audio only. In a playlist the format is set row by row, so one video can differ from the rest."
+            }, {
+                title: "Start the download",
+                content: "Use the download button on a row for a single video, or Download all to work through the playlist in order. The file is assembled in your browser - there is nothing to install and no account to create."
             }
         ],
         supportedFormat: "Supported Formats",
@@ -208,7 +222,7 @@ const dictionary = {
         }
     },
     mg: {
-        menu: ["Fandraisana", "Ahoana ny fampiasa azy/FAQ", "Ireo Tolotra", "Ireo endrika nomerika"],
+        menu: ["Fandraisana", "Ahoana ny fampiasana azy", "Ireo Tolotra", "Ireo endrika nomerika"],
         lang: {
             en: "Anglisy",
             mg: "Malagasy",
@@ -238,6 +252,20 @@ const dictionary = {
             }, {
                 title: "3. Tolotra fanampiny",
                 content: ["- Ahitana tenim-pirenena samihafa", "- Afaka ampiasaina na amin'ny finday na amin'ny ordinatera", "- Tsy mila fanokafana kaonty, 100% maimaim-poana"]
+            }
+        ],
+        howToUse: "Ahoana ny fampiasana azy",
+        howToUseDescription: "Dingana telo eo anelanelan'ny rohy YouTube sy ny rakitra ao amin'ny fitaovanao.",
+        howToUseSteps: [
+            {
+                title: "Apetaho ny rohy",
+                content: "Adikao ny URL-n'ny horonantsary na ny playlist YouTube dia apetraho ao amin'ny sehatra eo an-tampon'ity pejy ity. Vakian'i Tubeko ilay rohy ary asehony daholo ny horonantsary ao anatiny."
+            }, {
+                title: "Safidio ny endrika",
+                content: "Fidio ny kalitaon'ny MP4 ao amin'ny lisitra Kalitao, na MP3 raha ny feo ihany no tazoninao. Ao amin'ny playlist dia isaky ny andalana no safidiana ny endrika, ka mety tsy hitovy amin'ny hafa ny horonantsary iray."
+            }, {
+                title: "Atombohy ny fakana",
+                content: "Ampiasao ny bokotra fakana eo amin'ny andalana iray raha horonantsary tokana no tadiavinao, na ny «Alaivo daholo» hanaraka ny filaharan'ny playlist. Ao amin'ny navigateur-nao no amboarina ilay rakitra - tsy mila fametrahana na fanokafana kaonty."
             }
         ],
         supportedFormat: "Ireo endrika nomerika",
@@ -415,7 +443,7 @@ const dictionary = {
         }
     },
     fr: {
-        menu: ["Accueil", "Comment utiliser / FAQ", "Fonctionnalités", "Formats pris en charge"],
+        menu: ["Accueil", "Comment l’utiliser", "Fonctionnalités", "Formats pris en charge"],
         lang: {
             en: "Anglais",
             mg: "Malagasy",
@@ -461,6 +489,20 @@ const dictionary = {
                 ]
             }
 
+        ],
+        howToUse: "Comment l’utiliser",
+        howToUseDescription: "Trois étapes entre un lien YouTube et un fichier sur votre appareil.",
+        howToUseSteps: [
+            {
+                title: "Collez le lien",
+                content: "Copiez l’URL d’une vidéo ou d’une playlist YouTube et collez-la dans le champ en haut de cette page. Tubeko lit le lien et affiche toutes les vidéos qu’il contient."
+            }, {
+                title: "Choisissez le format",
+                content: "Sélectionnez une résolution MP4 dans le menu Qualité, ou passez en MP3 pour ne garder que l’audio. Dans une playlist, le format se règle ligne par ligne : une vidéo peut donc différer des autres."
+            }, {
+                title: "Lancez le téléchargement",
+                content: "Utilisez le bouton de téléchargement d’une ligne pour une seule vidéo, ou « Tout télécharger » pour parcourir la playlist dans l’ordre. Le fichier est assemblé dans votre navigateur - rien à installer et aucune inscription."
+            }
         ],
         supportedFormat: "Formats pris en charge",
         supportedFormatContent: "Notre plateforme supporte uniquement le format **MP3** pour l’audio et **MP4** pour la vidéo afin d’offrir la meilleure qualité et compatibilité sur tous les appareils. **MP4** est un format vidéo largement utilisé qui équilibre haute qualité et compression efficace, vous permettant de télécharger des vidéos en plusieurs résolutions telles que **1080p, 720p, et 480p**. Quant à **MP3**, c’est le format audio le plus populaire, offrant une excellente qualité sonore avec des fichiers de petite taille, idéal pour la musique et les podcasts. Que vous téléchargiez des vidéos ou extrayiez de l’audio, ces formats garantissent une lecture fluide sur tous les appareils.",

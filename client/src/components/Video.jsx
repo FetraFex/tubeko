@@ -28,7 +28,7 @@ const MENU_ITEM =
     'flex w-full cursor-pointer items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm text-white/75 transition-colors duration-150 hover:bg-[#72ffce]/10 hover:text-white';
 
 
-const Video = forwardRef(({ title, thumbnail, videoId, quality, onComplete, onDownloadOnly, onQueueAfter, onAudioDownloadOnly, onAudioQueueAfter }, ref) => {
+const Video = forwardRef(({ title, thumbnail, videoId, duration, quality, onComplete, onDownloadOnly, onQueueAfter, onAudioDownloadOnly, onAudioQueueAfter }, ref) => {
 
 
     /***Download information */
@@ -357,7 +357,9 @@ const Video = forwardRef(({ title, thumbnail, videoId, quality, onComplete, onDo
             <div className='flex min-w-0 justify-between flex-col flex-1'>
                 <div>
                     <h3 className='text-white font-semibold text-base leading-snug sm:text-lg line-clamp-2'>{title}</h3>
-                    <h3 className='mt-1 text-xs text-[#a7ffe2]/70'>05:48</h3>
+                    {/* The length comes from the API; a row whose lookup failed simply
+                        drops the clock rather than showing a made-up one. */}
+                    {duration && <h3 className='mt-1 text-xs text-[#a7ffe2]/70'>{duration}</h3>}
                 </div>
                 <div className='w-full'>
                     <h3 className="text-xs uppercase tracking-[0.14em] text-[#a7ffe2]/80">{progressText}</h3>

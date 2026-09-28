@@ -605,6 +605,7 @@ const Home = () => {
                                         ref={(el) => (videoRefs.current[index] = el)}
                                         onComplete={() => handleComplete(index)}
                                         title={video.title} thumbnail={video.thumbnail} videoId={video.videoId}
+                                        duration={video.duration}
                                         quality={quality}
                                         onDownloadOnly={() => startSingleDownload(index)}
                                         onQueueAfter={() => startDownloadsFromIndex(index)}

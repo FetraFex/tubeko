@@ -68,8 +68,8 @@ const Footer = () => {
           </div>
         </div>
 
-        {/* Labels rather than links: the sections these name have no anchors, which
-            is also how the navbar renders the same four entries. */}
+        {/* Labels rather than links: this column repeats the section names for
+            orientation, while the jumps themselves live in the bar at the top. */}
         <nav className='flex flex-col items-center gap-4 xl:items-start'>
           {t.menu.map((item) => (
             <span

@@ -24,9 +24,7 @@ const MENU_LINK = 'inline-block transition-colors duration-200 hover:text-[#a7ff
 const MENU_ACTIVE = 'text-[#72ffce] underline underline-offset-4 decoration-[#72ffce]/70'
 
 // Which section of the landing page each menu entry jumps to, in dictionary order.
-// "How to Use/FAQ" has no section to reach yet - HowToUse.jsx exists but is not
-// mounted in Landing.jsx - so it stays a plain label until that section is added.
-const MENU_TARGETS = ['home', null, 'features', 'supported-formats']
+const MENU_TARGETS = ['home', 'how-to-use', 'features', 'supported-formats']
 
 // Language codes paired with the country flag react-world-flags expects.
 const languages = [
@@ -122,11 +120,6 @@ const Navbar = () => {
             <motion.ul initial={{ x: "100%", opacity: 0 }} animate={{ x: "0", opacity: 1 }} exit={{ x: "100%", opacity: 0 }} className={`xl:flex gap-8 absolute xl:relative w-full top-full xl:top-auto bg-black xl:bg-transparent left-0 px-3 h-screen xl:h-auto space-y-4 xl:space-y-0 text-end`}>
               {dictionary[language].menu.map((label, index) => {
                 const target = MENU_TARGETS[index]
-
-                if (!target) {
-                  return <li key={label} className='font-semibold'>{label}</li>
-                }
-
                 const isActive = isLanding && activeSection === target
                 return (
                   <li key={label} className='font-semibold'>
