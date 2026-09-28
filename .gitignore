@@ -34,3 +34,8 @@ server/node_modules/*
 # keeps coming up as a modified file while it stays tracked - hence the file is
 # untracked as well as ignored.
 server/cookies.txt
+
+# The yt-dlp binary scripts/setup-yt-dlp.js fetches on a non-Windows host. It is
+# platform-specific and replaced by the build, so it is never committed - the
+# Windows yt-dlp.exe stays tracked because it is the one already in the repo.
+server/yt-dlp
