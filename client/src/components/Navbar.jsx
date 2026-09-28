@@ -2,6 +2,7 @@ import { faBars, faCheck, faChevronDown, faGlobe, faHeart } from '@fortawesome/f
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome'
 import { AnimatePresence, motion } from 'framer-motion'
 import React, { useEffect, useRef, useState } from 'react'
+import { Link, useLocation } from 'react-router-dom'
 import { useMediaQuery } from "react-responsive"
 import { Listbox, Transition } from '@headlessui/react';
 import { useLanguage } from '../Context/LanguageContext'
@@ -35,6 +36,10 @@ const languages = [
 ]
 
 const Navbar = () => {
+  const location = useLocation()
+  // The scroll spy and the active marker only mean something on the landing page;
+  // the legal pages have no #home/#features sections to watch.
+  const isLanding = location.pathname === '/'
   const isMobileOrTablet = useMediaQuery({ query: "(max-width: 1280px)" })
   const [isMenuOpen, setIsMenuOpen] = useState(isMobileOrTablet ? false : true)
   const { language, setLanguage } = useLanguage()
@@ -58,6 +63,7 @@ const Navbar = () => {
   const [activeSection, setActiveSection] = useState('home')
 
   useEffect(() => {
+    if (!isLanding) return undefined
     const ids = MENU_TARGETS.filter(Boolean)
 
     const sync = () => {
@@ -76,7 +82,7 @@ const Navbar = () => {
       window.removeEventListener('scroll', sync)
       window.removeEventListener('resize', sync)
     }
-  }, [])
+  }, [isLanding])
 
   // At the top of the page the bar floats transparently over the hero, where the
   // mint bloom and the dark scrim already give the links something to sit on.
@@ -106,10 +112,11 @@ const Navbar = () => {
   return (
     <div className={`fixed top-0 w-full text-white xl:px-36 py-3 sm:px-10 lg:px-20 lg:py-6 px-3 flex justify-between items-center z-50 border-b transition-[background-color,border-color,box-shadow] duration-300 ${isScrolledFromTop ? 'border-white/10 bg-[#04110d]/80 shadow-[0_8px_30px_rgba(0,0,0,0.45)] backdrop-blur-xl' : 'border-transparent bg-transparent'}`}>
       <div className='flex items-center lg:space-x-24'>
-        <div className='flex items-center gap-3'>
+        {/* The brand is the way home from any page the bar is shown on. */}
+        <Link to='/' className='flex items-center gap-3'>
           <img src='/images/tubeko-lg.png' alt='' className='h-7 xl:h-8 w-auto' />
           <span className='font-sora font-bold gradient-text tracking-[0.18em] leading-none whitespace-nowrap select-none text-lg sm:text-xl xl:text-2xl'>TUBEKO</span>
-        </div>
+        </Link>
         <AnimatePresence>
           {isMenuOpen &&
             <motion.ul initial={{ x: "100%", opacity: 0 }} animate={{ x: "0", opacity: 1 }} exit={{ x: "100%", opacity: 0 }} className={`xl:flex gap-8 absolute xl:relative w-full top-full xl:top-auto bg-black xl:bg-transparent left-0 px-3 h-screen xl:h-auto space-y-4 xl:space-y-0 text-end`}>
@@ -120,17 +127,17 @@ const Navbar = () => {
                   return <li key={label} className='font-semibold'>{label}</li>
                 }
 
-                const isActive = activeSection === target
+                const isActive = isLanding && activeSection === target
                 return (
                   <li key={label} className='font-semibold'>
-                    <a
-                      href={`#${target}`}
+                    <Link
+                      to={isLanding ? `#${target}` : `/#${target}`}
                       onClick={closeMenuAfterJump}
                       aria-current={isActive ? 'true' : undefined}
                       className={isActive ? MENU_ACTIVE : MENU_LINK}
                     >
                       {label}
-                    </a>
+                    </Link>
                   </li>
                 )
               })}

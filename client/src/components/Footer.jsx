@@ -1,4 +1,5 @@
 import React from 'react'
+import { Link } from 'react-router-dom'
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome'
 import { faFacebook, faInstagram, faWhatsapp, faXTwitter } from '@fortawesome/free-brands-svg-icons'
 import { faHeart } from '@fortawesome/free-solid-svg-icons'
@@ -83,9 +84,12 @@ const Footer = () => {
 
       <div className=' bg-[#0c0c0c] flex flex-col-reverse sm:flex-row gap-5 justify-between py-4 text-white xl:px-36 px-3'>
         <p className='text-xs text-white/45 sm:text-sm xl:text-base'>© 2025 Tubeko. {t.copyright}</p>
-        <p className='cursor-pointer text-xs font-medium text-white/45 transition-colors duration-200 hover:text-[#a7ffe2] sm:text-sm xl:text-base'>
+        <Link
+          to='/terms'
+          className='text-xs font-medium text-white/45 transition-colors duration-200 hover:text-[#a7ffe2] sm:text-sm xl:text-base'
+        >
           {t.termsconditions}
-        </p>
+        </Link>
       </div>
     </footer>
   )
