@@ -1,5 +1,9 @@
 // Load environment variables from .env before anything reads process.env.
-require('dotenv').config({ quiet: true })
+// Pinned to this file's own directory rather than the working directory: started
+// as `node server/server.js` from the repo root, dotenv would look for ./.env,
+// find nothing, and bring the server up without its API key - announcing that
+// only in a startup warning that reads like a detail about someone else's machine.
+require('dotenv').config({ path: `${__dirname}/.env`, quiet: true })
 
 const express = require("express")
 const cors = require('cors')
@@ -20,14 +24,18 @@ const activeDownloads = new Map(); // Track active downloads
 const app = express()
 const PORT = process.env.PORT || 3000
 
-// The client is served from a different origin depending on where it runs:
-// Vite in dev, whatever host it is deployed to in production. Anything extra is
-// listed in ALLOWED_ORIGINS, comma-separated, e.g.
-// ALLOWED_ORIGINS=https://tubeko.vercel.app - without that entry the deployed
-// client would reach the server but be refused the response.
+// The client is served from a different origin depending on where it runs: Vite
+// in dev, Vercel in production. The dev ports are listed literally; Vercel needs
+// a pattern, because every deployment gets its own hostname (the production
+// domain plus a fresh one per preview) and cors() tests a RegExp natively.
+// ALLOWED_ORIGINS adds anything else, comma-separated: a client on some other
+// host still reaches the server, but is refused the response without an entry.
+const VERCEL_ORIGIN = /^https:\/\/[a-z0-9-]+\.vercel\.app$/i;
+
 const ALLOWED_ORIGINS = [
   'http://localhost:5173',
   'http://localhost:5174',
+  VERCEL_ORIGIN,
   ...(process.env.ALLOWED_ORIGINS || '')
     .split(',')
     .map((origin) => origin.trim())
