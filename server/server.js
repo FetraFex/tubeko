@@ -167,6 +167,75 @@ const parseYtDlpProgress = (line) => {
   };
 };
 
+// YouTube cookies -------------------------------------------------------------
+//
+// The error a flagged host gets back says what to do about it: "Sign in to
+// confirm you're not a bot... use --cookies for the authentication". A logged-in
+// session is what clears that check, and unlike a token it also brings back the
+// higher-resolution formats.
+//
+// The cookies are a Netscape export, arriving base64-encoded in
+// YOUTUBE_COOKIES_B64 (or raw in YOUTUBE_COOKIES) so that a host holding them as
+// a secret does not have to cope with tabs and newlines. They are written once,
+// to a 0600 file in the temporary directory rather than into the repo, and are
+// never logged: the point of a session cookie is that it stays secret.
+const LOCAL_COOKIES_PATH = path.join(__dirname, 'cookies.txt');
+const RUNTIME_COOKIES_PATH = path.join(os.tmpdir(), 'tubeko-yt-dlp-cookies.txt');
+
+const writeCookiesFromEnv = () => {
+  const encoded = process.env.YOUTUBE_COOKIES_B64;
+  const raw = process.env.YOUTUBE_COOKIES;
+  if (!encoded && !raw) return null;
+
+  const contents = encoded
+    ? Buffer.from(encoded, 'base64').toString('utf8')
+    : raw.replace(/\\n/g, '\n');
+
+  if (!contents.includes('youtube.com')) {
+    console.warn('[cookies] the configured cookies never mention youtube.com - check the export');
+  }
+
+  try {
+    fs.writeFileSync(RUNTIME_COOKIES_PATH, contents, { mode: 0o600 });
+    return RUNTIME_COOKIES_PATH;
+  } catch (error) {
+    console.error(`[cookies] could not write the cookie file: ${error.message}`);
+    return null;
+  }
+};
+
+// Resolved once: the environment cannot change under a running process, and
+// re-reading the file per request would only add a stat() to every call.
+const cookies = { resolved: false, path: null, source: null };
+
+const cookiesFile = () => {
+  if (cookies.resolved) return cookies.path;
+  cookies.resolved = true;
+
+  const fromEnv = writeCookiesFromEnv();
+  if (fromEnv) {
+    cookies.path = fromEnv;
+    cookies.source = process.env.YOUTUBE_COOKIES_B64 ? 'YOUTUBE_COOKIES_B64' : 'YOUTUBE_COOKIES';
+  } else if (fs.existsSync(LOCAL_COOKIES_PATH)) {
+    cookies.path = LOCAL_COOKIES_PATH;
+    cookies.source = 'server/cookies.txt';
+  }
+  return cookies.path;
+};
+
+const cookieArgs = () => {
+  const file = cookiesFile();
+  return file ? ['--cookies', file] : [];
+};
+
+const logCookieState = () => {
+  console.log(
+    cookiesFile()
+      ? `[cookies] using cookies from ${cookies.source}`
+      : '[cookies] none configured - a flagged host will answer "Sign in to confirm you\'re not a bot"'
+  );
+};
+
 // YouTube's bot check on a shared host ----------------------------------------
 //
 // From a datacenter IP (Render's, for one) YouTube answers yt-dlp's default
@@ -184,9 +253,33 @@ const POT_BINARY_PATH = path.join(__dirname, process.platform === 'win32' ? 'bgu
 const POT_PLUGIN_DIR = path.join(__dirname, 'plugins');
 const POT_PLUGIN_ZIP = path.join(POT_PLUGIN_DIR, 'bgutil-ytdlp-pot-provider-rs.zip');
 const POT_PORT = Number(process.env.POT_SERVER_PORT) || 4416;
-// mweb is the client these tokens are meant for. Player clients do get blocked
-// one at a time, so the choice stays overridable without a code change.
-const POT_PLAYER_CLIENT = process.env.YTDLP_PLAYER_CLIENT || 'mweb';
+
+// The provider is started once with the server and answers every request over
+// loopback, so its tokens are cached for hours rather than minted per call.
+//
+// potAvailable is what the yt-dlp arguments follow: pointing them at a port
+// nothing is serving buys only a failed token fetch per request, which reads in
+// the logs as the very bot check this setup exists to avoid.
+let potProvider = null;
+let potAvailable = false;
+
+// A pinged port can still be a wedged process, and "is it actually there" is the
+// first thing to check when a host reports the bot check anyway.
+const potProviderReachable = async () => {
+  try {
+    const response = await axios.get(`http://127.0.0.1:${POT_PORT}/ping`, { timeout: 2000 });
+    return response.status === 200;
+  } catch {
+    return false;
+  }
+};
+
+// mweb is the client these tokens are meant for, and the one yt-dlp's docs point
+// at when a host is refused. With a cookie session that flips: the default client
+// is then the tested path, and pinning mweb would only get in the way. Either way
+// the choice stays overridable while the clients are being blocked one by one.
+const activePlayerClient = () =>
+  process.env.YTDLP_PLAYER_CLIENT || (cookiesFile() ? null : 'mweb');
 
 // Outside Windows the binary also has to be executable, or spawning it fails and
 // every request comes back as a failed token fetch rather than a missing
@@ -205,7 +298,8 @@ const potProviderInstalled = () => {
 // --extractor-args for a given provider, so a caller must not add its own for
 // youtube or youtubepot-bgutilhttp after these.
 const potYtDlpArgs = () => {
-  if (!potProviderInstalled()) return [];
+  if (!potProviderInstalled() || !potAvailable) return [];
+  const client = activePlayerClient();
   return [
     '--plugin-dirs', POT_PLUGIN_DIR,
     // mweb cannot play anything until the player's JavaScript challenge is
@@ -213,15 +307,12 @@ const potYtDlpArgs = () => {
     // needs no extra runtime installed.
     '--js-runtimes', `node:${process.execPath}`,
     '--extractor-args', `youtubepot-bgutilhttp:base_url=http://127.0.0.1:${POT_PORT}`,
-    '--extractor-args', `youtube:player_client=${POT_PLAYER_CLIENT}`,
+    ...(client ? ['--extractor-args', `youtube:player_client=${client}`] : []),
   ];
 };
 
-// Tokens are cached inside the provider for hours, so it is started once with the
-// server and then answers every request over loopback. If it dies, the plugin's
-// request fails and the caller sees that error; the server itself stays up.
-let potProvider = null;
-
+// If the provider dies, the plugin's request fails and the caller sees that
+// error; the server itself stays up.
 const startPotProvider = () => {
   if (!potProviderInstalled()) {
     console.log('[pot] no PO-token provider installed - yt-dlp runs without tokens');
@@ -233,13 +324,26 @@ const startPotProvider = () => {
     ['server', '--host', '127.0.0.1', '--port', String(POT_PORT)],
     { stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true }
   );
+  potAvailable = true;
 
   potProvider.stdout.on('data', (data) => process.stdout.write(`[pot] ${data}`));
   potProvider.stderr.on('data', (data) => process.stderr.write(`[pot] ${data}`));
   potProvider.on('error', (error) => console.error(`[pot] could not start the provider: ${error.message}`));
-  potProvider.on('exit', (code, signal) => {
-    console.warn(`[pot] provider exited (code ${code}${signal ? `, signal ${signal}` : ''})`);
+  potProvider.on('exit', async (code, signal) => {
     potProvider = null;
+    const where = `code ${code}${signal ? `, signal ${signal}` : ''}`;
+
+    // A provider that was already running is a normal way to lose the race -
+    // typically last run's copy still holding the port on a dev machine - and
+    // its tokens are as good as ours, so there is nothing to fix.
+    if (await potProviderReachable()) {
+      console.warn(`[pot] our provider exited (${where}), but ${POT_PORT} is already served by another one - using it`);
+      potAvailable = true;
+      return;
+    }
+
+    potAvailable = false;
+    console.warn(`[pot] provider exited (${where}) - yt-dlp will run without tokens`);
   });
 
   console.log(`[pot] token provider listening on 127.0.0.1:${POT_PORT}`);
@@ -253,6 +357,52 @@ for (const signal of ['SIGINT', 'SIGTERM']) {
     process.exit(0);
   });
 }
+
+// Mints a token through the provider's command line - the one check that proves
+// the provider works on this host rather than merely being installed. It boots
+// the whole 50 MB binary, so /health only runs it when asked with ?deep=1.
+let deepCheck = { at: 0, result: null };
+
+const potMintCheck = () =>
+  new Promise((resolve) => {
+    if (!potProviderInstalled()) {
+      return resolve({ ok: false, error: 'provider is not installed' });
+    }
+
+    const startedAt = Date.now();
+    const child = spawn(
+      POT_BINARY_PATH,
+      ['--content-binding', 'dQw4w9WgXcQ'],
+      { stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true }
+    );
+
+    let stdout = '';
+    let stderr = '';
+
+    const timer = setTimeout(() => {
+      child.kill();
+      resolve({ ok: false, error: 'timed out after 20s' });
+    }, 20000);
+
+    child.stdout.on('data', (data) => {
+      stdout += data;
+    });
+    child.stderr.on('data', (data) => {
+      stderr += data;
+    });
+    child.on('error', (error) => {
+      clearTimeout(timer);
+      resolve({ ok: false, error: error.message });
+    });
+    child.on('close', (code) => {
+      clearTimeout(timer);
+      const milliseconds = Date.now() - startedAt;
+      if (code === 0 && stdout.trim()) return resolve({ ok: true, milliseconds });
+      // Only the last line: the token itself is not worth leaking into a log.
+      const detail = stderr.trim().split('\n').pop();
+      resolve({ ok: false, milliseconds, error: detail || `exit code ${code}` });
+    });
+  });
 
 // Helper function to safely run yt-dlp
 const runYtDlpCommand = (args, options = {}) => {
@@ -276,7 +426,11 @@ const runYtDlpCommand = (args, options = {}) => {
         '--add-header', 'User-Agent:Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36',
         '--add-header', 'Accept-Language:en-US,en;q=0.9',
         '--dump-json',
-        '--no-warnings',
+        // --no-warnings hides exactly the messages that explain a refused
+        // request (the token plugin reports its failures as warnings), so it is
+        // dropped when YTDLP_VERBOSE asks for that detail.
+        ...(process.env.YTDLP_VERBOSE ? ['--verbose'] : ['--no-warnings']),
+        ...cookieArgs(),
         ...potYtDlpArgs()
       ];
 
@@ -327,8 +481,38 @@ const runYtDlpCommand = (args, options = {}) => {
 // to knock periodically - and a check against the root would read a 404 as a
 // broken deploy rather than a healthy one. uptimeSeconds doubles as proof of
 // whether the instance has been kept awake or has just cold-started.
-app.get('/health', (req, res) => {
-  res.json({ status: 'ok', uptimeSeconds: Math.round(process.uptime()) });
+//
+// It also answers the question a broken download raises next: is the token
+// provider running on this host, and are cookies configured at all. `?deep=1`
+// goes further and mints a token, which is the only way to know the provider
+// works here rather than merely being installed.
+app.get('/health', async (req, res) => {
+  const pot = {
+    installed: potProviderInstalled(),
+    // running is our own child; available is what the yt-dlp arguments follow,
+    // so a provider someone else started still counts.
+    running: Boolean(potProvider),
+    reachable: await potProviderReachable(),
+    available: potAvailable,
+    playerClient: activePlayerClient() || 'default',
+  };
+
+  if (req.query.deep) {
+    // Cached for a minute: the check boots the provider binary, and nobody needs
+    // a fresh answer per request - including whoever might point a loop at it.
+    const now = Date.now();
+    if (!deepCheck.result || now - deepCheck.at > 60000) {
+      deepCheck = { at: now, result: await potMintCheck() };
+    }
+    pot.mint = { ...deepCheck.result, cachedSecondsAgo: Math.round((now - deepCheck.at) / 1000) };
+  }
+
+  res.json({
+    status: 'ok',
+    uptimeSeconds: Math.round(process.uptime()),
+    cookies: { configured: Boolean(cookiesFile()), source: cookies.source },
+    pot,
+  });
 });
 
 // SSE endpoint for progress updates
@@ -672,7 +856,6 @@ app.get('/download/full', async (req, res) => {
 
   const downloadId = id || Math.random().toString(36).substring(7);
   const ytdlpPath = path.join(__dirname, process.platform === 'win32' ? 'yt-dlp.exe' : 'yt-dlp');
-  const cookiesPath = path.join(__dirname, 'cookies.txt');
   const tempDir = path.join(os.tmpdir(), 'yt-full');
   if (!fs.existsSync(tempDir)) fs.mkdirSync(tempDir, { recursive: true });
 
@@ -700,7 +883,7 @@ app.get('/download/full', async (req, res) => {
       ...extraArgs,
       '-o', filePath
     ];
-    if (fs.existsSync(cookiesPath)) args.push('--cookies', cookiesPath);
+    args.push(...cookieArgs());
 
     console.log('Executing yt-dlp:', args.join(' '));
     const proc = spawn(ytdlpPath, args, { stdio: ['ignore', 'pipe', 'pipe'], shell: false, windowsHide: true });
@@ -1030,11 +1213,7 @@ app.get('/download', async (req, res) => {
 
 
 
-  // Add cookies if available
-  const cookiesPath = path.join(__dirname, 'cookies.txt');
-  if (fs.existsSync(cookiesPath)) {
-    args.push('--cookies', cookiesPath);
-  }
+  args.push(...cookieArgs());
 
   console.log('Executing yt-dlp with args:', args); // Debug logging
 
@@ -1150,6 +1329,7 @@ app.get('/download/audio', async (req, res) => {
       '--extract-audio',
       '--audio-format', 'mp3',
       '-f', itag || 'bestaudio',
+      ...cookieArgs(),
       ...potYtDlpArgs(),
       '-o', '-'
     ];
@@ -1340,6 +1520,7 @@ app.get('/download-merged', (req, res) => {
 });
 
 startPotProvider();
+logCookieState();
 
 app.listen(PORT, () => {
   console.log(`API running at http://localhost:${PORT}`);
