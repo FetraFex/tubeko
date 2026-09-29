@@ -54,7 +54,7 @@ const dictionary = {
                 content: "Press Start conversion below the field. Tubeko reads the link and lists every video it contains."
             }, {
                 title: "Start the download",
-                content: "Pick an MP4 resolution in the Quality menu, or switch to MP3 to keep the audio only. In a playlist the format is set row by row, so one video can differ from the rest. Then use the download button on a row for a single video, or Download all to work through the playlist in order. The file is assembled in your browser - there is nothing to install and no account to create."
+                content: "Choose an MP4 resolution in the Quality menu, or switch to MP3 to keep the audio only. In a playlist each row keeps its own format."
             }
         ],
         supportedFormat: "Supported Formats",
@@ -282,7 +282,7 @@ const dictionary = {
                 content: "Tsindrio ny bokotra « Hatomboka » eo ambany amin'ny sehatra. Vakian'i Tubeko ilay rohy ary asehony daholo ny horonantsary ao anatiny."
             }, {
                 title: "Atombohy ny fakana",
-                content: "Fidio ny kalitaon'ny MP4 ao amin'ny lisitra Kalitao, na MP3 raha ny feo ihany no tazoninao. Ao amin'ny playlist dia isaky ny andalana no safidiana ny endrika, ka mety tsy hitovy amin'ny hafa ny horonantsary iray. Avy eo ampiasao ny bokotra fakana eo amin'ny andalana iray raha horonantsary tokana no tadiavinao, na ny «Alaivo daholo» hanaraka ny filaharan'ny playlist. Ao amin'ny navigateur-nao no amboarina ilay rakitra - tsy mila fametrahana na fanokafana kaonty."
+                content: "Fidio ny kalitaon'ny MP4 ao amin'ny lisitra Kalitao, na MP3 raha ny feo ihany no tazoninao. Ao amin'ny playlist dia samy manana ny endriny avy ny andalana tsirairay."
             }
         ],
         supportedFormat: "Ireo endrika nomerika",
@@ -525,7 +525,7 @@ const dictionary = {
                 content: "Cliquez sur le bouton « Démarrer la conversion » sous le champ. Tubeko lit le lien et affiche toutes les vidéos qu’il contient."
             }, {
                 title: "Lancez le téléchargement",
-                content: "Sélectionnez une résolution MP4 dans le menu Qualité, ou passez en MP3 pour ne garder que l’audio. Dans une playlist, le format se règle ligne par ligne : une vidéo peut donc différer des autres. Utilisez ensuite le bouton de téléchargement d’une ligne pour une seule vidéo, ou « Tout télécharger » pour parcourir la playlist dans l’ordre. Le fichier est assemblé dans votre navigateur - rien à installer et aucune inscription."
+                content: "Choisissez une résolution MP4 dans le menu Qualité, ou passez en MP3 pour ne garder que l’audio. Dans une playlist, chaque ligne conserve son propre format."
             }
         ],
         supportedFormat: "Formats pris en charge",
