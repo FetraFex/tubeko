@@ -1,6 +1,6 @@
 import React from 'react'
 import { useState, useRef, forwardRef, useImperativeHandle } from 'react';
-import { faChevronDown, faDownload, faListUl } from '@fortawesome/free-solid-svg-icons';
+import { faChevronDown, faCircleCheck, faDownload, faListUl } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { AnimatePresence, motion } from 'framer-motion';
 import {
@@ -38,6 +38,9 @@ const Video = forwardRef(({ title, thumbnail, videoId, duration, quality, onComp
     const [size, setSize] = useState({ downloaded: '', total: '' });
     const [eta, setEta] = useState('');
     const [progressText, setProgressText] = useState('Waiting for download...');
+    // True once the file has been handed to the browser. The row keeps this final
+    // status instead of sitting on "Saving file..." after the download is over.
+    const [completed, setCompleted] = useState(false);
     // Shown inline instead of an alert(): a modal alert would freeze the whole
     // playlist queue until it was dismissed.
     const [error, setError] = useState('');
@@ -81,6 +84,7 @@ const Video = forwardRef(({ title, thumbnail, videoId, duration, quality, onComp
         setError('');
         setNotice('');
         setProgressText("Starting audio download...");
+        setCompleted(false);
         setProgress(0);
         setSize({ downloaded: '', total: '' });
         setSpeed('');
@@ -132,6 +136,10 @@ const Video = forwardRef(({ title, thumbnail, videoId, duration, quality, onComp
             setSpeed('');
             setEta('');
             saveBlob(blob, filename);
+            // saveBlob is synchronous: by the time it returns the browser already has
+            // the file, so the row can say so rather than staying on the save step.
+            setProgressText("Download complete");
+            setCompleted(true);
         } catch (error) {
             console.error('Audio download error:', error);
             setError(error.message || 'Audio download failed');
@@ -148,6 +156,7 @@ const Video = forwardRef(({ title, thumbnail, videoId, duration, quality, onComp
         // at once would share one ffmpeg instance.
         if (downloading.status) return;
         setProgressText("Starting download...")
+        setCompleted(false);
         setError('');
         setNotice('');
         setDownloading(prev => ({ ...prev, status: true, type: 'video+audio' }));
@@ -299,6 +308,10 @@ const Video = forwardRef(({ title, thumbnail, videoId, duration, quality, onComp
             setSpeed('');
             setEta('');
             saveBlob(blob, `${label}.mp4`);
+            // saveBlob is synchronous: the file is in the browser's hands by now, so the
+            // row reports the finished state instead of holding on "Saving file...".
+            setProgressText("Download complete");
+            setCompleted(true);
             console.log('Download complete');
 
         } catch (error) {
@@ -363,7 +376,10 @@ const Video = forwardRef(({ title, thumbnail, videoId, duration, quality, onComp
                     {duration && <h3 className='mt-1 text-xs text-[#a7ffe2]/70'>{duration}</h3>}
                 </div>
                 <div className='w-full'>
-                    <h3 className="text-xs uppercase tracking-[0.14em] text-[#a7ffe2]/80">{progressText}</h3>
+                    <h3 className={`flex items-center gap-2 text-xs uppercase tracking-[0.14em] ${completed ? 'text-[#72ffce]' : 'text-[#a7ffe2]/80'}`}>
+                        {completed && <FontAwesomeIcon icon={faCircleCheck} />}
+                        {progressText}
+                    </h3>
                     <div className='mt-2 h-1.5 w-full overflow-hidden rounded-full bg-white/10'>
                         <div className="relative h-full rounded-full bg-gradient-to-r from-[#16b98c] to-[#72ffce] shadow-[0_0_14px_#72ffce80]" style={{
                             width: `${progress}%`,

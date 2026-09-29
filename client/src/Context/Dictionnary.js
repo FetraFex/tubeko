@@ -15,6 +15,16 @@ const dictionary = {
             conversion: "Start conversion",
             quality: "Quality"
         },
+        // Confirmation card shown once the link has been read successfully.
+        // {count} is filled in from the response, and a one-video playlist gets
+        // its own sentence rather than "1 videos".
+        toast: {
+            playlistTitle: "Playlist ready",
+            playlistMessageOne: "1 video found and ready to download.",
+            playlistMessageMany: "{count} videos found and ready to download.",
+            videoTitle: "Video ready",
+            videoMessage: "The video is ready to download below."
+        },
         followus: "Follow Us",
         scroll: "Scroll",
         swipe: "Swipe",
@@ -236,6 +246,13 @@ const dictionary = {
             conversion: "Hatomboka",
             quality: "Kalitao"
         },
+        toast: {
+            playlistTitle: "Vonona ny playlist",
+            playlistMessageOne: "Horonantsary 1 no hita ary vonona haka.",
+            playlistMessageMany: "Horonantsary {count} no hita ary vonona haka.",
+            videoTitle: "Vonona ny horonantsary",
+            videoMessage: "Vonona haka ao ambany ny horonantsary."
+        },
         followus: "Araho amin'ny rohy",
         scroll: "Hamantatra",
         swipe: "Hamantatra",
@@ -456,6 +473,13 @@ const dictionary = {
         button: {
             conversion: "Démarrer la conversion",
             quality: "Qualité"
+        },
+        toast: {
+            playlistTitle: "Playlist prête",
+            playlistMessageOne: "1 vidéo trouvée et prête à télécharger.",
+            playlistMessageMany: "{count} vidéos trouvées et prêtes à télécharger.",
+            videoTitle: "Vidéo prête",
+            videoMessage: "La vidéo est prête à être téléchargée ci-dessous."
         },
         followus: "Suivez-nous",
         scroll: "Faites défiler ",

@@ -10,6 +10,7 @@ import Sparkles from './Sparkles'
 import Media from './Media';
 import { ClipLoader, DotLoader, CircleLoader, BeatLoader } from "react-spinners";
 import Video from './Video';
+import Toast from './Toast';
 import { useMediaQuery } from 'react-responsive';
 import { useLanguage } from '../Context/LanguageContext';
 import dictionary from '../Context/Dictionnary'
@@ -50,6 +51,16 @@ const Home = () => {
     const [isLoading, setIsLoading] = useState(false);
     const [videos, setVideos] = useState([])
     const [errorMessage, setErrorMessage] = useState("")
+
+    // Confirmation card for a fetch that came back with videos. One at a time, and
+    // each carries an id because that id is what the card is keyed on: replacing a
+    // toast remounts it, which restarts its countdown and its entrance animation.
+    const [toast, setToast] = useState(null)
+    const toastIdRef = useRef(0)
+    const showToast = ({ title, message }) => {
+        toastIdRef.current += 1
+        setToast({ id: toastIdRef.current, title, message })
+    }
 
     // Download quality: chosen in the hero, applied to every video below.
     const [quality, setQuality] = useState(DEFAULT_QUALITY)
@@ -279,9 +290,12 @@ const Home = () => {
         setPlaylistInfo(null);
         setRenderedCount(RENDER_CHUNK);
         setErrorMessage("");
+        // The previous result's card must not hang over this fetch's own one.
+        setToast(null);
 
         try {
             const { listId, videoId } = parseYouTubeInput(url);
+            const { toast: toastCopy } = dictionary[language]
 
             // Both routes answer with a video list plus the header fields, so the panel
             // gets its title, channel and count the same way either way. A single video
@@ -300,12 +314,24 @@ const Home = () => {
             if (listId) {
                 const response = await axios.get(`${API}/api/playlist/${listId}`);
                 applyResponse(response.data);
-                if (!response.data.videos?.length) {
+                const count = response.data.videos?.length || 0;
+                if (!count) {
                     setErrorMessage("This playlist has no downloadable videos.");
+                } else {
+                    showToast({
+                        title: toastCopy.playlistTitle,
+                        // A one-video playlist gets its own sentence instead of "1 videos".
+                        message: (count === 1 ? toastCopy.playlistMessageOne : toastCopy.playlistMessageMany)
+                            .replace('{count}', count),
+                    });
                 }
             } else if (videoId) {
                 const response = await axios.get(`${API}/api/video/${videoId}`);
                 applyResponse(response.data);
+                showToast({
+                    title: toastCopy.videoTitle,
+                    message: toastCopy.videoMessage,
+                });
             } else {
                 setErrorMessage("Could not parse a video or playlist from that link.");
             }
@@ -651,6 +677,22 @@ const Home = () => {
                     {SPARK_FIELD}
                 </div>
                 <Media />
+            </div>
+
+            {/* The fetch confirmation card. Fixed to the viewport rather than the hero
+                so a long loaded playlist cannot scroll it away, and kept clear of the
+                navbar above it and the Follow Us / Scroll row along the bottom. */}
+            <div className='pointer-events-none fixed right-3 top-20 z-[60] sm:right-6 sm:top-24'>
+                <AnimatePresence>
+                    {toast && (
+                        <Toast
+                            key={toast.id}
+                            title={toast.title}
+                            message={toast.message}
+                            onClose={() => setToast(null)}
+                        />
+                    )}
+                </AnimatePresence>
             </div>
         </div>
     )
