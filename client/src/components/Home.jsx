@@ -27,10 +27,12 @@ const SPARK_FIELD = [
 ]
 
 // The Start Download menu. Scope (one video vs the whole playlist) belongs to the row
-// menus, so this one only picks the format the whole playlist downloads in.
+// menus, so this one only picks the format the whole playlist downloads in. The labels
+// are dictionary keys rather than text: this array is built at module scope, before
+// there is a language to read one in.
 const DOWNLOAD_ALL_OPTIONS = [
-    { mode: 'video', icon: faFileVideo, label: 'Download all as MP4', hint: 'Video and audio, merged' },
-    { mode: 'audio', icon: faFileAudio, label: 'Download all as MP3', hint: 'Audio only, no merge' },
+    { mode: 'video', icon: faFileVideo, labelKey: 'allMp4', hintKey: 'allMp4Hint' },
+    { mode: 'audio', icon: faFileAudio, labelKey: 'allMp3', hintKey: 'allMp3Hint' },
 ]
 
 // A row is a whole card - thumbnail, progress bar, two menus - so a few hundred of them
@@ -84,6 +86,8 @@ const Home = () => {
     useDismissOnOutsideClick(startMenuRef, isStartMenuOpen, () => setIsStartMenuOpen(false))
 
     const { language } = useLanguage()
+    // The download bar and the playlist header: buttons, menu entries and counts.
+    const t = dictionary[language].download
 
     // The controls (label + headline + input + buttons) are held at the vertical centre
     // of the first screen by a spacer whose height is measured here. Reading the real
@@ -246,8 +250,8 @@ const Home = () => {
     // A playlist can hold more entries than the API hands back (deleted or private
     // videos are skipped), so say so rather than implying the count is the whole list.
     const videoCountLabel = playlistInfo?.itemCount && playlistInfo.itemCount > videos.length
-        ? `${videos.length} of ${playlistInfo.itemCount} videos`
-        : `${videos.length} ${videos.length === 1 ? 'video' : 'videos'}`;
+        ? t.videosOfTotal.replace('{shown}', videos.length).replace('{total}', playlistInfo.itemCount)
+        : (videos.length === 1 ? t.oneVideo : t.videos.replace('{count}', videos.length));
 
 
     const morphVariants = {
@@ -336,7 +340,7 @@ const Home = () => {
                 applyResponse(response.data);
                 const count = response.data.videos?.length || 0;
                 if (!count) {
-                    setErrorMessage("This playlist has no downloadable videos.");
+                    setErrorMessage(t.noVideos);
                 } else {
                     showToast({
                         title: toastCopy.playlistTitle,
@@ -353,13 +357,13 @@ const Home = () => {
                     message: toastCopy.videoMessage,
                 });
             } else {
-                setErrorMessage("Could not parse a video or playlist from that link.");
+                setErrorMessage(t.badLink);
             }
         } catch (error) {
             console.log("Error fetching videos: ", error.message);
             setErrorMessage(
                 error.response?.data?.error ||
-                "Could not reach the server. Is it running on port 3000?"
+                t.serverUnreachable
             );
         } finally {
             setIsLoading(false);
@@ -596,7 +600,9 @@ const Home = () => {
                                         </p>
                                     </div>
                                     {renderedCount < videos.length && (
-                                        <span className='shrink-0 text-xs text-[#72ffce]/80'>Showing {renderedCount} of {videos.length}</span>
+                                        <span className='shrink-0 text-xs text-[#72ffce]/80'>
+                                            {t.showing.replace('{shown}', renderedCount).replace('{total}', videos.length)}
+                                        </span>
                                     )}
                                 </div>
                             )}
@@ -611,7 +617,7 @@ const Home = () => {
                                         aria-haspopup='menu'
                                         className='flex items-center gap-3 rounded-full bg-[#72ffce] px-10 py-2.5 text-lg font-semibold text-black shadow-[0_0_26px_-6px_#72ffce] transition-colors duration-300 hover:bg-[#a7ffe2]'
                                     >
-                                        <span>Start Download</span>
+                                        <span>{t.startAll}</span>
                                         <FontAwesomeIcon icon={faChevronDown} className={`text-sm transition-transform duration-200 ${isStartMenuOpen ? 'rotate-180' : ''}`} />
                                     </button>
                                     <AnimatePresence>
@@ -635,8 +641,8 @@ const Home = () => {
                                                     >
                                                         <FontAwesomeIcon icon={option.icon} className='mt-0.5 text-sm text-[#a7ffe2]' />
                                                         <span className='flex-1'>
-                                                            <span className='block text-sm text-white'>{option.label}</span>
-                                                            <span className='block text-xs text-white/45'>{option.hint}</span>
+                                                            <span className='block text-sm text-white'>{t[option.labelKey]}</span>
+                                                            <span className='block text-xs text-white/45'>{t[option.hintKey]}</span>
                                                         </span>
                                                     </button>
                                                 ))}
@@ -650,7 +656,7 @@ const Home = () => {
                                         className='flex items-center gap-2 rounded-full border border-[#72ffce]/35 px-5 py-2.5 text-sm font-medium text-[#a7ffe2] transition-colors duration-200 hover:border-[#72ffce]/70 hover:text-white'
                                     >
                                         <FontAwesomeIcon icon={faArrowDown} className='text-xs' />
-                                        <span>Scroll to current</span>
+                                        <span>{t.scrollToCurrent}</span>
                                     </button>
                                 )}
                             </div>

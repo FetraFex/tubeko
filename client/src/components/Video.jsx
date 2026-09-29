@@ -22,6 +22,8 @@ import {
 } from '../lib/formatSelection';
 import { fallbackNotice, qualityOption, resolveVideoQuality } from '../lib/quality';
 import { useDismissOnOutsideClick } from '../lib/useDismissOnOutsideClick';
+import { useLanguage } from '../Context/LanguageContext';
+import dictionary from '../Context/Dictionnary';
 import { API } from '../lib/api';
 
 // Shared by both entries of the row's download menu. Mirrors the hero's quality selector
@@ -39,11 +41,18 @@ const Video = forwardRef(({ title, thumbnail, videoId, duration, quality, onComp
 
 
     /***Download information */
+    const { language } = useLanguage();
+    // Every label this row shows besides the numbers: buttons, menus and the
+    // progress line below.
+    const t = dictionary[language].download;
+
     const [progress, setProgress] = useState(0);
     const [speed, setSpeed] = useState('')
     const [size, setSize] = useState({ downloaded: '', total: '' });
     const [eta, setEta] = useState('');
-    const [progressText, setProgressText] = useState('Waiting for download...');
+    // The progress line is held as a key into t.status rather than as text, so
+    // switching language re-labels a download that is already running.
+    const [statusKey, setStatusKey] = useState('waiting');
     // True once the file has been handed to the browser. The row keeps this final
     // status instead of sitting on "Saving file..." after the download is over.
     const [completed, setCompleted] = useState(false);
@@ -101,10 +110,10 @@ const Video = forwardRef(({ title, thumbnail, videoId, duration, quality, onComp
 
     // Every byte-moving stage goes through this, so the pause button is only ever
     // offered while there is a stream that can actually be held.
-    const startTransfer = (text) => {
-        transferTextRef.current = text;
+    const startTransfer = (key) => {
+        transferTextRef.current = key;
         setStage('network');
-        setProgressText(text);
+        setStatusKey(key);
     };
 
     // A stage that cannot be held any more releases a pause pressed a moment too
@@ -122,11 +131,11 @@ const Video = forwardRef(({ title, thumbnail, videoId, duration, quality, onComp
         if (control.paused) {
             control.resume();
             setPaused(false);
-            setProgressText(transferTextRef.current || 'Downloading...');
+            setStatusKey(transferTextRef.current || 'downloading');
         } else {
             control.pause();
             setPaused(true);
-            setProgressText('Paused');
+            setStatusKey('paused');
         }
     };
 
@@ -140,7 +149,7 @@ const Video = forwardRef(({ title, thumbnail, videoId, duration, quality, onComp
     const doStop = (scope) => {
         setStopPrompt(false);
         controlRef.current?.stop();
-        setProgressText('Stopping...');
+        setStatusKey('stopping');
         // Whether the rest of the run ends with this video is the playlist's call to
         // make, not this row's.
         onStopped?.(scope);
@@ -156,7 +165,7 @@ const Video = forwardRef(({ title, thumbnail, videoId, duration, quality, onComp
         setSpeed('');
         setEta('');
         setCompleted(false);
-        setProgressText('Download stopped');
+        setStatusKey('stopped');
     };
 
     // Audio-only download: pulls just the audio stream, re-encodes it to mp3
@@ -165,7 +174,7 @@ const Video = forwardRef(({ title, thumbnail, videoId, duration, quality, onComp
         if (downloading.status) return;
         setError('');
         setNotice('');
-        setProgressText("Starting audio download...");
+        setStatusKey('startingAudio');
         setCompleted(false);
         setPaused(false);
         setStopPrompt(false);
@@ -185,7 +194,7 @@ const Video = forwardRef(({ title, thumbnail, videoId, duration, quality, onComp
             if (!audioFormat) throw new Error('Could not find a suitable audio format');
             if (!audioFormat.url) throw new Error('The server did not return a direct media URL for this format');
 
-            startTransfer("Downloading audio...");
+            startTransfer('downloadingAudio');
             const audioData = await downloadAudioOnly({
                 audioUrl: audioFormat.url,
                 control,
@@ -201,7 +210,7 @@ const Video = forwardRef(({ title, thumbnail, videoId, duration, quality, onComp
             // The stream arrives as AAC, which has to be re-encoded: the
             // download is already complete and playable, so a failed conversion
             // is not worth losing it over - keep the m4a and say why.
-            setProgressText("Converting to MP3...");
+            setStatusKey('converting');
             beginProcessing();
             setProgress(0);
             setSize({ downloaded: '', total: '' });
@@ -224,14 +233,14 @@ const Video = forwardRef(({ title, thumbnail, videoId, duration, quality, onComp
             // Stopping during the conversion cannot interrupt ffmpeg, so the check is
             // made here instead: the file is dropped rather than saved.
             if (control.stopped) throw stopError();
-            setProgressText("Saving file...");
+            setStatusKey('saving');
             setProgress(100);
             setSpeed('');
             setEta('');
             saveBlob(blob, filename);
             // saveBlob is synchronous: by the time it returns the browser already has
             // the file, so the row can say so rather than staying on the save step.
-            setProgressText("Download complete");
+            setStatusKey('complete');
             setCompleted(true);
         } catch (error) {
             if (control.stopped || isAbort(error)) {
@@ -256,7 +265,7 @@ const Video = forwardRef(({ title, thumbnail, videoId, duration, quality, onComp
         // The playlist queue and the row buttons both call this, and two muxes
         // at once would share one ffmpeg instance.
         if (downloading.status) return;
-        setProgressText("Starting download...")
+        setStatusKey('starting')
         setCompleted(false);
         setPaused(false);
         setStopPrompt(false);
@@ -275,7 +284,7 @@ const Video = forwardRef(({ title, thumbnail, videoId, duration, quality, onComp
             // back to, which is surfaced below rather than silently applied.
             const resolution = resolveVideoQuality(data.formats, quality);
             let preferredVideoFormat = resolution.format;
-            const qualityFallback = fallbackNotice(resolution);
+            const qualityFallback = fallbackNotice(resolution, t);
             if (qualityFallback) addNotice(qualityFallback);
 
             const preferredAudioFormat = selectAudioFormat(data.formats);
@@ -321,7 +330,7 @@ const Video = forwardRef(({ title, thumbnail, videoId, duration, quality, onComp
             // Both streams are pulled in parallel through the server relay
             // (~zero server CPU) and muxed here.
             const downloadInBrowser = async (videoFormat) => {
-                startTransfer("Downloading video + audio...");
+                startTransfer('downloadingBoth');
                 const { videoData, audioData } = await downloadMedia({
                     videoUrl: videoFormat.url,
                     audioUrl: preferredAudioFormat.url,
@@ -336,7 +345,7 @@ const Video = forwardRef(({ title, thumbnail, videoId, duration, quality, onComp
                     },
                 });
 
-                setProgressText("Merging video and audio...");
+                setStatusKey('merging');
                 beginProcessing();
                 setProgress(0);
                 setSize({ downloaded: '', total: '' });
@@ -419,14 +428,14 @@ const Video = forwardRef(({ title, thumbnail, videoId, duration, quality, onComp
 
             setStage('processing');
             if (control.stopped) throw stopError();
-            setProgressText("Saving file...");
+            setStatusKey('saving');
             setProgress(100);
             setSpeed('');
             setEta('');
             saveBlob(blob, `${label}.mp4`);
             // saveBlob is synchronous: the file is in the browser's hands by now, so the
-            // row reports the finished state instead of holding on "Saving file...".
-            setProgressText("Download complete");
+            // row reports the finished state instead of holding on the save step.
+            setStatusKey('complete');
             setCompleted(true);
             console.log('Download complete');
 
@@ -455,7 +464,7 @@ const Video = forwardRef(({ title, thumbnail, videoId, duration, quality, onComp
         // The server assembles this one, so there are no bytes here to hold: it can
         // be stopped, not paused.
         setStage('processing');
-        setProgressText("Merging on the server...");
+        setStatusKey('mergingServer');
         setProgress(0);
         setSize({ downloaded: '', total: '' });
         setSpeed('');
@@ -480,7 +489,7 @@ const Video = forwardRef(({ title, thumbnail, videoId, duration, quality, onComp
             addNotice(`The server could not use ${requested.label} for this video and delivered ${delivered} instead.`);
         }
 
-        setProgressText("Saving file...");
+        setStatusKey('saving');
         return response.blob();
     };
 
@@ -510,7 +519,9 @@ const Video = forwardRef(({ title, thumbnail, videoId, duration, quality, onComp
                 <div className='w-full'>
                     <h3 className={`flex items-center gap-2 text-xs uppercase tracking-[0.14em] ${completed ? 'text-[#72ffce]' : 'text-[#a7ffe2]/80'}`}>
                         {completed && <FontAwesomeIcon icon={faCircleCheck} />}
-                        {progressText}
+                        {/* Keyed rather than stored as text, so this line follows a
+                            language switch like every other label on the row. */}
+                        {t.status[statusKey] || t.status.waiting}
                     </h3>
                     <div className='mt-2 h-1.5 w-full overflow-hidden rounded-full bg-white/10'>
                         <div className="relative h-full rounded-full bg-gradient-to-r from-[#16b98c] to-[#72ffce] shadow-[0_0_14px_#72ffce80]" style={{
@@ -529,7 +540,7 @@ const Video = forwardRef(({ title, thumbnail, videoId, duration, quality, onComp
                             {progress.toFixed(1)}%
                             {size.total ? ` · ${size.downloaded ? `${size.downloaded} / ` : ''}${size.total}` : ''}
                         </p>
-                        <p>{speed}{eta ? ` · ETA ${eta}` : ''}</p>
+                        <p>{speed}{eta ? ` · ${t.eta} ${eta}` : ''}</p>
                     </div>
                     {error && <p className="mt-2 rounded-lg border border-red-400/25 bg-red-500/10 px-3 py-1.5 text-xs text-red-300">{error}</p>}
                     {notice && <p className="mt-2 rounded-lg border border-amber-300/25 bg-amber-400/10 px-3 py-1.5 text-xs text-amber-200">{notice}</p>}
@@ -552,7 +563,7 @@ const Video = forwardRef(({ title, thumbnail, videoId, duration, quality, onComp
                                         className='flex items-center gap-2 rounded-full border border-[#72ffce]/35 px-3.5 py-1.5 text-xs font-medium text-[#a7ffe2] transition-colors duration-150 hover:border-[#72ffce]/70 hover:bg-[#72ffce]/10 hover:text-white'
                                     >
                                         <FontAwesomeIcon icon={paused ? faPlay : faPause} className='text-[11px]' />
-                                        <span>{paused ? 'Resume' : 'Pause'}</span>
+                                        <span>{paused ? t.resume : t.pause}</span>
                                     </button>
                                 )}
                                 <button
@@ -561,7 +572,7 @@ const Video = forwardRef(({ title, thumbnail, videoId, duration, quality, onComp
                                     className='flex items-center gap-2 rounded-full border border-red-400/35 px-3.5 py-1.5 text-xs font-medium text-red-200 transition-colors duration-150 hover:border-red-400/70 hover:bg-red-500/10 hover:text-white'
                                 >
                                     <FontAwesomeIcon icon={faStop} className='text-[11px]' />
-                                    <span>Stop</span>
+                                    <span>{t.stop}</span>
                                 </button>
                             </motion.div>
                         )}
@@ -578,28 +589,28 @@ const Video = forwardRef(({ title, thumbnail, videoId, duration, quality, onComp
                                 transition={{ duration: 0.16, ease: 'easeOut' }}
                                 className='mt-3 rounded-xl border border-red-400/25 bg-red-500/10 p-3'
                             >
-                                <p className='text-xs text-red-200'>Stop this download?</p>
+                                <p className='text-xs text-red-200'>{t.stopQuestion}</p>
                                 <div className='mt-2 flex flex-wrap gap-2'>
                                     <button
                                         type='button'
                                         onClick={() => doStop('one')}
                                         className='rounded-full border border-white/15 bg-white/5 px-3 py-1.5 text-xs font-medium text-white/80 transition-colors duration-150 hover:bg-white/10 hover:text-white'
                                     >
-                                        Just this one
+                                        {t.stopOne}
                                     </button>
                                     <button
                                         type='button'
                                         onClick={() => doStop('all')}
                                         className='rounded-full bg-red-500/80 px-3 py-1.5 text-xs font-medium text-white transition-colors duration-150 hover:bg-red-500'
                                     >
-                                        Stop the whole run
+                                        {t.stopAll}
                                     </button>
                                     <button
                                         type='button'
                                         onClick={() => setStopPrompt(false)}
                                         className='rounded-full px-3 py-1.5 text-xs font-medium text-white/50 transition-colors duration-150 hover:text-white'
                                     >
-                                        Keep downloading
+                                        {t.stopKeep}
                                     </button>
                                 </div>
                             </motion.div>
@@ -615,7 +626,7 @@ const Video = forwardRef(({ title, thumbnail, videoId, duration, quality, onComp
                             aria-haspopup='menu'
                             className="flex w-full items-center justify-center gap-2 rounded-full bg-[#72ffce] px-4 py-2 text-sm font-semibold text-black shadow-[0_0_22px_-6px_#72ffce] transition-colors duration-300 hover:bg-[#a7ffe2]"
                         >
-                            <span>Download MP3</span>
+                            <span>{t.mp3}</span>
                             <FontAwesomeIcon icon={faChevronDown} className={`text-xs transition-transform duration-200 ${isAudioMenuOpen ? 'rotate-180' : ''}`} />
                         </button>
                         {/* Mirrors the MP4 menu, but stays inside the card so it is never
@@ -635,7 +646,7 @@ const Video = forwardRef(({ title, thumbnail, videoId, duration, quality, onComp
                                         className={MENU_ITEM}
                                     >
                                         <FontAwesomeIcon icon={faDownload} className='text-xs text-[#a7ffe2]' />
-                                        <span className='flex-1'>Only this audio</span>
+                                        <span className='flex-1'>{t.audioOnly}</span>
                                     </button>
                                     <button
                                         type='button'
@@ -643,7 +654,7 @@ const Video = forwardRef(({ title, thumbnail, videoId, duration, quality, onComp
                                         className={MENU_ITEM}
                                     >
                                         <FontAwesomeIcon icon={faListUl} className='text-xs text-[#a7ffe2]' />
-                                        <span className='flex-1'>This audio and everything after</span>
+                                        <span className='flex-1'>{t.audioAndAfter}</span>
                                     </button>
                                 </motion.div>}
                         </AnimatePresence>
@@ -657,7 +668,7 @@ const Video = forwardRef(({ title, thumbnail, videoId, duration, quality, onComp
                             aria-haspopup='menu'
                             className="flex w-full items-center justify-center gap-2 rounded-full bg-[#72ffce] px-4 py-2 text-sm font-semibold text-black shadow-[0_0_22px_-6px_#72ffce] transition-colors duration-300 hover:bg-[#a7ffe2]"
                         >
-                            <span>Download MP4</span>
+                            <span>{t.mp4}</span>
                             <FontAwesomeIcon icon={faChevronDown} className={`text-xs transition-transform duration-200 ${isDownloadMenuOpen ? 'rotate-180' : ''}`} />
                         </button>
                         {/* Opens upwards: the row lives in a scrolling list, and a menu that
@@ -677,7 +688,7 @@ const Video = forwardRef(({ title, thumbnail, videoId, duration, quality, onComp
                                         className={MENU_ITEM}
                                     >
                                         <FontAwesomeIcon icon={faDownload} className='text-xs text-[#a7ffe2]' />
-                                        <span className='flex-1'>Only this video</span>
+                                        <span className='flex-1'>{t.videoOnly}</span>
                                     </button>
                                     <button
                                         type='button'
@@ -685,7 +696,7 @@ const Video = forwardRef(({ title, thumbnail, videoId, duration, quality, onComp
                                         className={MENU_ITEM}
                                     >
                                         <FontAwesomeIcon icon={faListUl} className='text-xs text-[#a7ffe2]' />
-                                        <span className='flex-1'>This video and everything after</span>
+                                        <span className='flex-1'>{t.videoAndAfter}</span>
                                     </button>
                                 </motion.div>}
                         </AnimatePresence>

@@ -93,11 +93,15 @@ export const resolveVideoQuality = (formats, requestedValue = DEFAULT_QUALITY) =
 }
 
 // Human-readable note for a resolved fallback, or '' when the request was met.
-export const fallbackNotice = (resolution) => {
-  if (!resolution?.fallback || !resolution.format) return ''
+// The wording itself lives in the dictionary, so `copy` supplies the two
+// templates ('lower' / 'higher') with {requested} and {delivered} to fill in.
+// Filling them here rather than at the call site keeps the rule readable in a
+// test and keeps the caller from re-deriving which fallback happened.
+export const fallbackNotice = (resolution, copy) => {
+  if (!resolution?.fallback || !resolution.format || !copy) return ''
 
-  if (resolution.reason === 'higher') {
-    return `This video has nothing at or below ${resolution.requestedLabel}, so it downloads at the smallest available resolution, ${resolution.delivered}.`
-  }
-  return `${resolution.requestedLabel} is not available for this video, so it downloads at ${resolution.delivered} instead.`
+  const template = resolution.reason === 'higher' ? copy.qualityHigher : copy.qualityLower
+  return template
+    .replace('{requested}', resolution.requestedLabel)
+    .replace('{delivered}', resolution.delivered)
 }
