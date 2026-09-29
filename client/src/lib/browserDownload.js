@@ -144,11 +144,71 @@ export const mediaLooksValid = (bytes) => {
     sig.every((byte, i) => bytes[offset + i] === byte))
 }
 
+/**
+ * Pause / resume / stop for one transfer, shared by the video and audio paths.
+ *
+ * Pausing does not buffer anything: the reader is simply not asked for the next
+ * chunk, so the browser's own backpressure holds the connection open and the
+ * relay stops sending. Resuming carries on with the same stream instead of
+ * starting the file again.
+ */
+export const createTransferControl = () => {
+  const controller = new AbortController()
+  const startedAt = performance.now()
+  let paused = false
+  let pausedSince = 0
+  let pausedMs = 0
+  let waiting = []
+
+  // Wake everything sitting in waitWhilePaused.
+  const release = () => {
+    const pending = waiting
+    waiting = []
+    pending.forEach((resolve) => resolve())
+  }
+
+  return {
+    signal: controller.signal,
+    get paused() { return paused },
+    get stopped() { return controller.signal.aborted },
+    pause() {
+      if (paused || controller.signal.aborted) return
+      paused = true
+      pausedSince = performance.now()
+    },
+    resume() {
+      if (!paused) return
+      paused = false
+      pausedMs += performance.now() - pausedSince
+      release()
+    },
+    stop() {
+      paused = false
+      // A paused transfer is parked in waitWhilePaused and would never reach the
+      // aborted signal, so it has to be woken up first.
+      release()
+      controller.abort()
+    },
+    // Awaited before every read. While paused this does not settle, which is what
+    // holds the transfer mid-file.
+    async waitWhilePaused() {
+      if (!paused) return
+      await new Promise((resolve) => waiting.push(resolve))
+    },
+    // Elapsed transfer time with the paused stretches removed, so speed and ETA
+    // do not collapse after a minute on hold.
+    elapsedMs() {
+      const held = paused ? performance.now() - pausedSince : 0
+      return performance.now() - startedAt - pausedMs - held
+    },
+  }
+}
+
 const isRetryable = (error) =>
   error.code !== TOO_LARGE && error.name !== 'AbortError' && !error.aborted
 
 // Stream one format through the server relay, reporting bytes as they arrive.
-const streamOnce = async (cdnUrl, { onProgress, signal, maxBytes, expectedSize }) => {
+const streamOnce = async (cdnUrl, { onProgress, signal, maxBytes, expectedSize, control }) => {
   const response = await fetch(`${API}/stream?url=${encodeURIComponent(cdnUrl)}`, { signal })
 
   if (!response.ok || !response.body) {
@@ -177,6 +237,9 @@ const streamOnce = async (cdnUrl, { onProgress, signal, maxBytes, expectedSize }
   let received = 0
 
   for (;;) {
+    // Held before the next chunk is asked for: a paused transfer stops pulling
+    // bytes, and the relay stops sending them.
+    await control?.waitWhilePaused()
     const { done, value } = await reader.read()
     if (done) break
     // content-length can be absent; bail out on what has actually arrived.
@@ -227,7 +290,9 @@ const downloadStream = async (cdnUrl, label, options) => {
       return await streamOnce(cdnUrl, options)
     } catch (error) {
       lastError = error
-      if (error.code === TOO_LARGE || !isRetryable(error) || attempt === 2) throw error
+      // A stop is not a dropped connection: retrying would start the transfer
+      // again right after the user asked for it to end.
+      if (options.control?.stopped || error.code === TOO_LARGE || !isRetryable(error) || attempt === 2) throw error
       console.warn(`[download] ${label} attempt ${attempt} failed (${error.message}); retrying`)
     }
   }
@@ -238,8 +303,8 @@ const UPDATE_INTERVAL = 200
 
 // Build the shared size/speed/ETA readout for a transfer that has already
 // received some bytes for some time.
-const readout = ({ received, total, startedAt, onProgress }) => {
-  const seconds = (performance.now() - startedAt) / 1000
+const readout = ({ received, total, elapsedMs, onProgress }) => {
+  const seconds = elapsedMs / 1000
   const speed = seconds > 0 ? received / seconds : 0
   onProgress({
     percent: total ? Math.min(100, (received / total) * 100) : 0,
@@ -261,22 +326,30 @@ export const downloadAudioOnly = async ({
   expectedSize,
   onProgress,
   maxBytes = MAX_BROWSER_BYTES,
+  control,
 }) => {
   const startedAt = performance.now()
+  const elapsedMs = () => (control ? control.elapsedMs() : performance.now() - startedAt)
   let lastReport = 0
 
-  const { bytes } = await downloadStream(audioUrl, 'audio', {
+  const { bytes, received, total } = await downloadStream(audioUrl, 'audio', {
     maxBytes,
     expectedSize,
+    control,
+    signal: control?.signal,
     onProgress: onProgress
       ? ({ received, total }) => {
         const now = performance.now()
         if (now - lastReport < UPDATE_INTERVAL) return
         lastReport = now
-        readout({ received, total, startedAt, onProgress })
+        readout({ received, total, elapsedMs: elapsedMs(), onProgress })
       }
       : undefined,
   })
+  // The last chunk can land inside the throttle window, which would leave the row
+  // reading a few percent short of a file it already has (downloadMedia reports
+  // its final figures for the same reason).
+  if (onProgress) readout({ received, total, elapsedMs: elapsedMs(), onProgress })
   return bytes
 }
 
@@ -291,15 +364,20 @@ export const downloadMedia = async ({
   audioSize,
   onProgress,
   maxBytes = MAX_BROWSER_BYTES,
+  control,
 }) => {
   const state = {
     video: { received: 0, total: 0 },
     audio: { received: 0, total: 0 },
   }
   const startedAt = performance.now()
+  const elapsedMs = () => (control ? control.elapsedMs() : performance.now() - startedAt)
   let lastReport = 0
   // If one stream is oversized, the other request is cancelled too.
   const controller = new AbortController()
+  // Both fetches listen to this controller rather than to the control's own
+  // signal, so a stop has to reach them through it.
+  control?.signal.addEventListener('abort', () => controller.abort(), { once: true })
 
   const report = (force = false) => {
     if (!onProgress) return
@@ -310,7 +388,7 @@ export const downloadMedia = async ({
     readout({
       received: state.video.received + state.audio.received,
       total: state.video.total + state.audio.total,
-      startedAt,
+      elapsedMs: elapsedMs(),
       onProgress,
     })
   }
@@ -319,12 +397,14 @@ export const downloadMedia = async ({
     const [video, audio] = await Promise.all([
       downloadStream(videoUrl, 'video', {
         signal: controller.signal,
+        control,
         maxBytes,
         expectedSize: videoSize,
         onProgress: (p) => { state.video = p; report() },
       }),
       downloadStream(audioUrl, 'audio', {
         signal: controller.signal,
+        control,
         maxBytes,
         expectedSize: audioSize,
         onProgress: (p) => { state.audio = p; report() },

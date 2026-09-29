@@ -178,12 +178,32 @@ const Home = () => {
         setDownloadQueue(videos.map((_, index) => index));
     };
 
+    // Scroll the panel to whichever row is downloading. The row owns its DOM node,
+    // so it hands it over through the ref instead of this component reaching in.
+    const scrollToActiveDownload = () => {
+        if (activeDownload === null) return;
+        const row = videoRefs.current[activeDownload]?.getElement?.();
+        // scrollIntoView stops at the nearest scrollable ancestor, which is the
+        // panel itself: the list moves, and the page only follows when the panel is
+        // off screen.
+        row?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    };
+
+    // A row stops itself; whether the rest of the run stops with it is a decision
+    // only this component can carry out, because the queue lives here.
+    const handleStopped = (scope) => {
+        if (scope === 'all') setDownloadQueue([]);
+    };
+
     // Process next download whenever the queue changes
     const dispatchedRef = useRef(null) // row already handed to the queue
 
     useEffect(() => {
         if (downloadQueue.length === 0) {
             dispatchedRef.current = null;
+            // Nothing is downloading any more, so the scroll button has no row to
+            // point at and the panel holds still.
+            setActiveDownload(null);
             return;
         }
 
@@ -580,45 +600,59 @@ const Home = () => {
                                     )}
                                 </div>
                             )}
-                            <div ref={startMenuRef} className='relative mt-8'>
-                                <button
-                                    type='button'
-                                    onClick={() => setIsStartMenuOpen(open => !open)}
-                                    aria-expanded={isStartMenuOpen}
-                                    aria-haspopup='menu'
-                                    className='flex items-center gap-3 rounded-full bg-[#72ffce] px-10 py-2.5 text-lg font-semibold text-black shadow-[0_0_26px_-6px_#72ffce] transition-colors duration-300 hover:bg-[#a7ffe2]'
-                                >
-                                    <span>Start Download</span>
-                                    <FontAwesomeIcon icon={faChevronDown} className={`text-sm transition-transform duration-200 ${isStartMenuOpen ? 'rotate-180' : ''}`} />
-                                </button>
-                                <AnimatePresence>
-                                    {/* Centred with a negative margin rather than -translate-x-1/2: the
-                                        entrance animation writes its own transform, which would
-                                        replace a class-based translate. */}
-                                    {isStartMenuOpen &&
-                                        <motion.div
-                                            initial={{ y: '-6px', opacity: 0, scale: 0.97 }}
-                                            animate={{ y: '0', opacity: 1, scale: 1 }}
-                                            exit={{ y: '-6px', opacity: 0, scale: 0.97 }}
-                                            transition={{ duration: 0.16, ease: 'easeOut' }}
-                                            className='absolute left-1/2 top-full z-50 mt-2 -ml-32 w-64 overflow-hidden rounded-2xl border border-white/10 bg-[#08130f]/90 p-1.5 shadow-2xl shadow-black/60 backdrop-blur-xl'
-                                        >
-                                            {DOWNLOAD_ALL_OPTIONS.map((option) => (
-                                                <button
-                                                    key={option.mode}
-                                                    type='button'
-                                                    onClick={() => { startDownload(option.mode); setIsStartMenuOpen(false) }}
-                                                    className='flex w-full cursor-pointer items-start gap-3 rounded-xl px-3 py-2.5 text-left transition-colors duration-150 hover:bg-[#72ffce]/10'
-                                                >
-                                                    <FontAwesomeIcon icon={option.icon} className='mt-0.5 text-sm text-[#a7ffe2]' />
-                                                    <span className='flex-1'>
-                                                        <span className='block text-sm text-white'>{option.label}</span>
-                                                        <span className='block text-xs text-white/45'>{option.hint}</span>
-                                                    </span>
-                                                </button>
-                                            ))}
-                                        </motion.div>}
-                                </AnimatePresence>
+                            {/* The scroll button only exists while something is running, so it
+                                never sits in the row with nothing to scroll to. */}
+                            <div className='mt-8 flex flex-wrap items-center justify-center gap-3'>
+                                <div ref={startMenuRef} className='relative'>
+                                    <button
+                                        type='button'
+                                        onClick={() => setIsStartMenuOpen(open => !open)}
+                                        aria-expanded={isStartMenuOpen}
+                                        aria-haspopup='menu'
+                                        className='flex items-center gap-3 rounded-full bg-[#72ffce] px-10 py-2.5 text-lg font-semibold text-black shadow-[0_0_26px_-6px_#72ffce] transition-colors duration-300 hover:bg-[#a7ffe2]'
+                                    >
+                                        <span>Start Download</span>
+                                        <FontAwesomeIcon icon={faChevronDown} className={`text-sm transition-transform duration-200 ${isStartMenuOpen ? 'rotate-180' : ''}`} />
+                                    </button>
+                                    <AnimatePresence>
+                                        {/* Centred with a negative margin rather than -translate-x-1/2: the
+                                            entrance animation writes its own transform, which would
+                                            replace a class-based translate. */}
+                                        {isStartMenuOpen &&
+                                            <motion.div
+                                                initial={{ y: '-6px', opacity: 0, scale: 0.97 }}
+                                                animate={{ y: '0', opacity: 1, scale: 1 }}
+                                                exit={{ y: '-6px', opacity: 0, scale: 0.97 }}
+                                                transition={{ duration: 0.16, ease: 'easeOut' }}
+                                                className='absolute left-1/2 top-full z-50 mt-2 -ml-32 w-64 overflow-hidden rounded-2xl border border-white/10 bg-[#08130f]/90 p-1.5 shadow-2xl shadow-black/60 backdrop-blur-xl'
+                                            >
+                                                {DOWNLOAD_ALL_OPTIONS.map((option) => (
+                                                    <button
+                                                        key={option.mode}
+                                                        type='button'
+                                                        onClick={() => { startDownload(option.mode); setIsStartMenuOpen(false) }}
+                                                        className='flex w-full cursor-pointer items-start gap-3 rounded-xl px-3 py-2.5 text-left transition-colors duration-150 hover:bg-[#72ffce]/10'
+                                                    >
+                                                        <FontAwesomeIcon icon={option.icon} className='mt-0.5 text-sm text-[#a7ffe2]' />
+                                                        <span className='flex-1'>
+                                                            <span className='block text-sm text-white'>{option.label}</span>
+                                                            <span className='block text-xs text-white/45'>{option.hint}</span>
+                                                        </span>
+                                                    </button>
+                                                ))}
+                                            </motion.div>}
+                                    </AnimatePresence>
+                                </div>
+                                {activeDownload !== null && (
+                                    <button
+                                        type='button'
+                                        onClick={scrollToActiveDownload}
+                                        className='flex items-center gap-2 rounded-full border border-[#72ffce]/35 px-5 py-2.5 text-sm font-medium text-[#a7ffe2] transition-colors duration-200 hover:border-[#72ffce]/70 hover:text-white'
+                                    >
+                                        <FontAwesomeIcon icon={faArrowDown} className='text-xs' />
+                                        <span>Scroll to current</span>
+                                    </button>
+                                )}
                             </div>
                             {/* Four rows tall and fixed: the playlist scrolls inside the panel
                                 instead of resizing it. */}
@@ -631,6 +665,8 @@ const Home = () => {
                                         key={index}
                                         ref={(el) => (videoRefs.current[index] = el)}
                                         onComplete={() => handleComplete(index)}
+                                        onStopped={handleStopped}
+                                        hasQueueAfter={downloadQueue.length > 1}
                                         title={video.title} thumbnail={video.thumbnail} videoId={video.videoId}
                                         duration={video.duration}
                                         quality={quality}

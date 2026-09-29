@@ -1,12 +1,13 @@
 import React from 'react'
 import { useState, useRef, forwardRef, useImperativeHandle } from 'react';
-import { faChevronDown, faCircleCheck, faDownload, faListUl } from '@fortawesome/free-solid-svg-icons';
+import { faChevronDown, faCircleCheck, faDownload, faListUl, faPause, faPlay, faStop } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { AnimatePresence, motion } from 'framer-motion';
 import {
     MAX_BROWSER_BYTES,
     TOO_LARGE,
     audioToMp3,
+    createTransferControl,
     downloadAudioOnly,
     downloadMedia,
     formatBytes,
@@ -28,8 +29,13 @@ import { API } from '../lib/api';
 const MENU_ITEM =
     'flex w-full cursor-pointer items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm text-white/75 transition-colors duration-150 hover:bg-[#72ffce]/10 hover:text-white';
 
+// Every aborted fetch surfaces as an AbortError, and a stop raised between two
+// stages is built to look the same, so one check covers both.
+const isAbort = (error) => error?.name === 'AbortError' || !!error?.aborted;
+const stopError = () => new DOMException('The download was stopped', 'AbortError');
 
-const Video = forwardRef(({ title, thumbnail, videoId, duration, quality, onComplete, onDownloadOnly, onQueueAfter, onAudioDownloadOnly, onAudioQueueAfter }, ref) => {
+
+const Video = forwardRef(({ title, thumbnail, videoId, duration, quality, onComplete, onStopped, hasQueueAfter, onDownloadOnly, onQueueAfter, onAudioDownloadOnly, onAudioQueueAfter }, ref) => {
 
 
     /***Download information */
@@ -41,6 +47,22 @@ const Video = forwardRef(({ title, thumbnail, videoId, duration, quality, onComp
     // True once the file has been handed to the browser. The row keeps this final
     // status instead of sitting on "Saving file..." after the download is over.
     const [completed, setCompleted] = useState(false);
+    // The card itself, handed to the playlist so a button can scroll the panel to
+    // whichever row is downloading.
+    const cardRef = useRef(null);
+    // Pause/resume/stop for the transfer in flight. It lives in a ref because it is
+    // never rendered - it is the object the download functions talk to.
+    const controlRef = useRef(null);
+    const [paused, setPaused] = useState(false);
+    // 'network' while bytes are moving (pausable and stoppable), 'processing' while
+    // ffmpeg or the server is finishing the file (stoppable only - neither can be
+    // held half way), 'idle' otherwise.
+    const [stage, setStage] = useState('idle');
+    // Stopping this video and stopping the whole run are different enough to ask,
+    // but only when there is a run to stop.
+    const [stopPrompt, setStopPrompt] = useState(false);
+    // The line to put back when a pause is released (it differs between MP3 and MP4).
+    const transferTextRef = useRef('');
     // Shown inline instead of an alert(): a modal alert would freeze the whole
     // playlist queue until it was dismissed.
     const [error, setError] = useState('');
@@ -77,6 +99,66 @@ const Video = forwardRef(({ title, thumbnail, videoId, duration, quality, onComp
         return response.json();
     };
 
+    // Every byte-moving stage goes through this, so the pause button is only ever
+    // offered while there is a stream that can actually be held.
+    const startTransfer = (text) => {
+        transferTextRef.current = text;
+        setStage('network');
+        setProgressText(text);
+    };
+
+    // A stage that cannot be held any more releases a pause pressed a moment too
+    // late, rather than leaving the row claiming to be paused while it merges.
+    const beginProcessing = () => {
+        controlRef.current?.resume();
+        setPaused(false);
+        setStage('processing');
+    };
+
+    // Pause holds the stream where it is; resume carries on with the same one.
+    const togglePause = () => {
+        const control = controlRef.current;
+        if (!control) return;
+        if (control.paused) {
+            control.resume();
+            setPaused(false);
+            setProgressText(transferTextRef.current || 'Downloading...');
+        } else {
+            control.pause();
+            setPaused(true);
+            setProgressText('Paused');
+        }
+    };
+
+    // Nothing else is waiting, so "stop" can only mean this one video: asking would
+    // be a click with no decision behind it.
+    const requestStop = () => {
+        if (!hasQueueAfter) doStop('one');
+        else setStopPrompt(true);
+    };
+
+    const doStop = (scope) => {
+        setStopPrompt(false);
+        controlRef.current?.stop();
+        setProgressText('Stopping...');
+        // Whether the rest of the run ends with this video is the playlist's call to
+        // make, not this row's.
+        onStopped?.(scope);
+    };
+
+    // A stopped transfer reaches the same catch as a failure. It is not one, so the
+    // row says so instead of showing an error banner.
+    const reportStopped = () => {
+        console.info('[download] stopped on request');
+        transferTextRef.current = '';
+        setProgress(0);
+        setSize({ downloaded: '', total: '' });
+        setSpeed('');
+        setEta('');
+        setCompleted(false);
+        setProgressText('Download stopped');
+    };
+
     // Audio-only download: pulls just the audio stream, re-encodes it to mp3
     // and saves that. No video, and no mux step - there is only one stream.
     const handleAudioDownload = async () => {
@@ -85,10 +167,15 @@ const Video = forwardRef(({ title, thumbnail, videoId, duration, quality, onComp
         setNotice('');
         setProgressText("Starting audio download...");
         setCompleted(false);
+        setPaused(false);
+        setStopPrompt(false);
+        setStage('idle');
         setProgress(0);
         setSize({ downloaded: '', total: '' });
         setSpeed('');
         setEta('');
+        const control = createTransferControl();
+        controlRef.current = control;
         setDownloading(prev => ({ ...prev, status: true, type: 'audio' }));
 
         try {
@@ -98,9 +185,10 @@ const Video = forwardRef(({ title, thumbnail, videoId, duration, quality, onComp
             if (!audioFormat) throw new Error('Could not find a suitable audio format');
             if (!audioFormat.url) throw new Error('The server did not return a direct media URL for this format');
 
-            setProgressText("Downloading audio...");
+            startTransfer("Downloading audio...");
             const audioData = await downloadAudioOnly({
                 audioUrl: audioFormat.url,
+                control,
                 expectedSize: audioFormat.filesizeBytes,
                 onProgress: ({ percent, downloaded, total, speed: rate, eta }) => {
                     setProgress(percent);
@@ -114,6 +202,7 @@ const Video = forwardRef(({ title, thumbnail, videoId, duration, quality, onComp
             // download is already complete and playable, so a failed conversion
             // is not worth losing it over - keep the m4a and say why.
             setProgressText("Converting to MP3...");
+            beginProcessing();
             setProgress(0);
             setSize({ downloaded: '', total: '' });
             setSpeed('');
@@ -131,6 +220,10 @@ const Video = forwardRef(({ title, thumbnail, videoId, duration, quality, onComp
                 filename = `${label}.m4a`;
             }
 
+            beginProcessing();
+            // Stopping during the conversion cannot interrupt ffmpeg, so the check is
+            // made here instead: the file is dropped rather than saved.
+            if (control.stopped) throw stopError();
             setProgressText("Saving file...");
             setProgress(100);
             setSpeed('');
@@ -141,9 +234,17 @@ const Video = forwardRef(({ title, thumbnail, videoId, duration, quality, onComp
             setProgressText("Download complete");
             setCompleted(true);
         } catch (error) {
-            console.error('Audio download error:', error);
-            setError(error.message || 'Audio download failed');
+            if (control.stopped || isAbort(error)) {
+                reportStopped();
+            } else {
+                console.error('Audio download error:', error);
+                setError(error.message || 'Audio download failed');
+            }
         } finally {
+            setStage('idle');
+            setPaused(false);
+            setStopPrompt(false);
+            controlRef.current = null;
             setDownloading({ status: false, type: '', progress: 0 });
             // Keeps a playlist-wide MP3 run advancing. A one-off audio download either
             // finds the queue empty or another row at its head, and leaves it alone.
@@ -157,8 +258,13 @@ const Video = forwardRef(({ title, thumbnail, videoId, duration, quality, onComp
         if (downloading.status) return;
         setProgressText("Starting download...")
         setCompleted(false);
+        setPaused(false);
+        setStopPrompt(false);
+        setStage('idle');
         setError('');
         setNotice('');
+        const control = createTransferControl();
+        controlRef.current = control;
         setDownloading(prev => ({ ...prev, status: true, type: 'video+audio' }));
         try {
             // 1. Fetch video metadata to pick formats
@@ -215,12 +321,13 @@ const Video = forwardRef(({ title, thumbnail, videoId, duration, quality, onComp
             // Both streams are pulled in parallel through the server relay
             // (~zero server CPU) and muxed here.
             const downloadInBrowser = async (videoFormat) => {
-                setProgressText("Downloading video + audio...");
+                startTransfer("Downloading video + audio...");
                 const { videoData, audioData } = await downloadMedia({
                     videoUrl: videoFormat.url,
                     audioUrl: preferredAudioFormat.url,
                     videoSize: videoFormat.filesizeBytes,
                     audioSize: preferredAudioFormat.filesizeBytes,
+                    control,
                     onProgress: ({ percent, downloaded, total, speed: rate, eta }) => {
                         setProgress(percent);
                         setSize({ downloaded, total });
@@ -230,6 +337,7 @@ const Video = forwardRef(({ title, thumbnail, videoId, duration, quality, onComp
                 });
 
                 setProgressText("Merging video and audio...");
+                beginProcessing();
                 setProgress(0);
                 setSize({ downloaded: '', total: '' });
                 setSpeed('');
@@ -254,6 +362,9 @@ const Video = forwardRef(({ title, thumbnail, videoId, duration, quality, onComp
                 try {
                     blob = await downloadInBrowser(preferredVideoFormat);
                 } catch (browserError) {
+                    // A stop must not read as a browser failure: without this the
+                    // server would be asked to download what was just cancelled.
+                    if (control.stopped) throw browserError;
                     // yt-dlp leaves the size out for some formats, so a stream
                     // can turn out to be over the limit only once it is already
                     // arriving. One retry at a lower resolution keeps the
@@ -271,6 +382,9 @@ const Video = forwardRef(({ title, thumbnail, videoId, duration, quality, onComp
                         try {
                             blob = await downloadInBrowser(smaller);
                         } catch (retryError) {
+                            // Same rule as above: a stop is not a retry that failed,
+                            // so it must not land on the server either.
+                            if (control.stopped || isAbort(retryError)) throw retryError;
                             failure = retryError;
                             retriedAt = '';
                         }
@@ -303,6 +417,8 @@ const Video = forwardRef(({ title, thumbnail, videoId, duration, quality, onComp
                 }
             }
 
+            setStage('processing');
+            if (control.stopped) throw stopError();
             setProgressText("Saving file...");
             setProgress(100);
             setSpeed('');
@@ -315,10 +431,18 @@ const Video = forwardRef(({ title, thumbnail, videoId, duration, quality, onComp
             console.log('Download complete');
 
         } catch (error) {
-            console.error('Download error:', error);
-            // Inline, not alert(): the queue must keep advancing unattended.
-            setError(error.message || 'Download failed');
+            if (control.stopped || isAbort(error)) {
+                reportStopped();
+            } else {
+                console.error('Download error:', error);
+                // Inline, not alert(): the queue must keep advancing unattended.
+                setError(error.message || 'Download failed');
+            }
         } finally {
+            setStage('idle');
+            setPaused(false);
+            setStopPrompt(false);
+            controlRef.current = null;
             setDownloading({ status: false, type: '', progress: 0 });
             onComplete();
         }
@@ -328,12 +452,18 @@ const Video = forwardRef(({ title, thumbnail, videoId, duration, quality, onComp
     // memory, a stream it could not fetch, a codec ffmpeg.wasm refuses): the
     // server downloads, merges and streams the finished file back.
     const downloadOnServer = async ({ videoItag, audioItag }) => {
+        // The server assembles this one, so there are no bytes here to hold: it can
+        // be stopped, not paused.
+        setStage('processing');
         setProgressText("Merging on the server...");
         setProgress(0);
         setSize({ downloaded: '', total: '' });
+        setSpeed('');
+        setEta('');
 
         const response = await fetch(
-            `${API}/download/full?url=${encodeURIComponent("https://www.youtube.com/watch?v=" + videoId)}&videoItag=${videoItag}&audioItag=${audioItag}&quality=${encodeURIComponent(quality)}`
+            `${API}/download/full?url=${encodeURIComponent("https://www.youtube.com/watch?v=" + videoId)}&videoItag=${videoItag}&audioItag=${audioItag}&quality=${encodeURIComponent(quality)}`,
+            { signal: controlRef.current?.signal }
         );
 
         if (!response.ok) {
@@ -357,11 +487,13 @@ const Video = forwardRef(({ title, thumbnail, videoId, duration, quality, onComp
     useImperativeHandle(ref, () => ({
         handleDownload,
         // The playlist queue reaches for this one when the run was started in audio mode.
-        handleAudioDownload
+        handleAudioDownload,
+        // The playlist reads this to scroll the panel to whichever row is running.
+        getElement: () => cardRef.current
     }));
 
     return (
-        <div className='playlist-card flex gap-x-5 w-full text-left rounded-2xl border border-[#72ffce]/15 bg-[#08130f]/70 p-4 shadow-[0_18px_40px_-26px_rgba(0,0,0,0.95)] transition-colors duration-300 hover:border-[#72ffce]/40 hover:bg-[#08130f]/90'>
+        <div ref={cardRef} className='playlist-card flex gap-x-5 w-full text-left rounded-2xl border border-[#72ffce]/15 bg-[#08130f]/70 p-4 shadow-[0_18px_40px_-26px_rgba(0,0,0,0.95)] transition-colors duration-300 hover:border-[#72ffce]/40 hover:bg-[#08130f]/90'>
             <div className='shrink-0 self-start overflow-hidden rounded-xl ring-1 ring-white/10'>
                 {/* decoding=async plus lazy loading: a long playlist is hundreds of
                     thumbnails, and decoding them all up front is what made scrolling
@@ -401,6 +533,78 @@ const Video = forwardRef(({ title, thumbnail, videoId, duration, quality, onComp
                     </div>
                     {error && <p className="mt-2 rounded-lg border border-red-400/25 bg-red-500/10 px-3 py-1.5 text-xs text-red-300">{error}</p>}
                     {notice && <p className="mt-2 rounded-lg border border-amber-300/25 bg-amber-400/10 px-3 py-1.5 text-xs text-amber-200">{notice}</p>}
+                    {/* Pause and Stop for the transfer in flight. Pause only exists while
+                        bytes are moving: a merge or a server-side assembly cannot be held
+                        half way, and a button that did nothing would be worse than none. */}
+                    <AnimatePresence>
+                        {downloading.status && (
+                            <motion.div
+                                initial={{ opacity: 0, y: -4 }}
+                                animate={{ opacity: 1, y: 0 }}
+                                exit={{ opacity: 0, y: -4 }}
+                                transition={{ duration: 0.16, ease: 'easeOut' }}
+                                className='mt-3 flex flex-wrap items-center gap-2'
+                            >
+                                {stage === 'network' && (
+                                    <button
+                                        type='button'
+                                        onClick={togglePause}
+                                        className='flex items-center gap-2 rounded-full border border-[#72ffce]/35 px-3.5 py-1.5 text-xs font-medium text-[#a7ffe2] transition-colors duration-150 hover:border-[#72ffce]/70 hover:bg-[#72ffce]/10 hover:text-white'
+                                    >
+                                        <FontAwesomeIcon icon={paused ? faPlay : faPause} className='text-[11px]' />
+                                        <span>{paused ? 'Resume' : 'Pause'}</span>
+                                    </button>
+                                )}
+                                <button
+                                    type='button'
+                                    onClick={requestStop}
+                                    className='flex items-center gap-2 rounded-full border border-red-400/35 px-3.5 py-1.5 text-xs font-medium text-red-200 transition-colors duration-150 hover:border-red-400/70 hover:bg-red-500/10 hover:text-white'
+                                >
+                                    <FontAwesomeIcon icon={faStop} className='text-[11px]' />
+                                    <span>Stop</span>
+                                </button>
+                            </motion.div>
+                        )}
+                    </AnimatePresence>
+                    {/* Stopping one video and stopping the whole run are different enough
+                        to ask, but inline: a modal would sit over the playlist the rest of
+                        the run has to keep working through. */}
+                    <AnimatePresence>
+                        {stopPrompt && (
+                            <motion.div
+                                initial={{ opacity: 0, y: -4 }}
+                                animate={{ opacity: 1, y: 0 }}
+                                exit={{ opacity: 0, y: -4 }}
+                                transition={{ duration: 0.16, ease: 'easeOut' }}
+                                className='mt-3 rounded-xl border border-red-400/25 bg-red-500/10 p-3'
+                            >
+                                <p className='text-xs text-red-200'>Stop this download?</p>
+                                <div className='mt-2 flex flex-wrap gap-2'>
+                                    <button
+                                        type='button'
+                                        onClick={() => doStop('one')}
+                                        className='rounded-full border border-white/15 bg-white/5 px-3 py-1.5 text-xs font-medium text-white/80 transition-colors duration-150 hover:bg-white/10 hover:text-white'
+                                    >
+                                        Just this one
+                                    </button>
+                                    <button
+                                        type='button'
+                                        onClick={() => doStop('all')}
+                                        className='rounded-full bg-red-500/80 px-3 py-1.5 text-xs font-medium text-white transition-colors duration-150 hover:bg-red-500'
+                                    >
+                                        Stop the whole run
+                                    </button>
+                                    <button
+                                        type='button'
+                                        onClick={() => setStopPrompt(false)}
+                                        className='rounded-full px-3 py-1.5 text-xs font-medium text-white/50 transition-colors duration-150 hover:text-white'
+                                    >
+                                        Keep downloading
+                                    </button>
+                                </div>
+                            </motion.div>
+                        )}
+                    </AnimatePresence>
                 </div>
                 <div className="mt-4 flex gap-x-3">
                     <div ref={audioMenuRef} className="relative flex-1">
