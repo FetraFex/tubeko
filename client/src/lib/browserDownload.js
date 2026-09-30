@@ -7,15 +7,17 @@
 // them locally with ffmpeg.wasm, which keeps the server to bytes-in/bytes-out:
 // no yt-dlp process per download, no temp files, no ffmpeg on the server.
 //
-// The one thing this cannot offload is server bandwidth - only the server can
-// talk to the CDN, so the bytes are relayed through it either way.
+// The bytes still have to be relayed (the CDN sends no CORS header), but not
+// necessarily by the server: set VITE_RELAY_BASE and they come from a Cloudflare
+// Worker (worker/) instead, which takes both the bandwidth and the concurrency
+// ceiling off the Render instance. The server's /stream stays as the fallback.
 
 import { FFmpeg } from '@ffmpeg/ffmpeg'
 // Vite serves the core we installed as assets, so no CDN fetch is needed.
 import coreURL from '@ffmpeg/core?url'
 import wasmURL from '@ffmpeg/core/wasm?url'
 
-import { API } from './api'
+import { API, RELAY_API } from './api'
 
 // Loading the core pulls in a ~32MB wasm blob. It is only ever needed once per
 // page, so the promise is cached and shared by every item in a playlist.
@@ -207,51 +209,117 @@ export const createTransferControl = () => {
 const isRetryable = (error) =>
   error.code !== TOO_LARGE && error.name !== 'AbortError' && !error.aborted
 
-// Stream one format through the server relay, reporting bytes as they arrive.
-const streamOnce = async (cdnUrl, { onProgress, signal, maxBytes, expectedSize, control }) => {
-  const response = await fetch(`${API}/stream?url=${encodeURIComponent(cdnUrl)}`, { signal })
+// googlevideo throttles an unbounded request to a crawl, so the file is pulled in
+// windows. The server's /stream route does that internally; the Cloudflare relay
+// does not, because a Worker only gets a sliver of CPU and 50 subrequests per
+// invocation (see worker/src/index.js). With the relay configured the client asks
+// for one window at a time with a Range header and the worker just forwards it,
+// so neither side ever holds more than a single window.
+const RELAY_WINDOW_BYTES = 4 * 1024 * 1024
 
-  if (!response.ok || !response.body) {
-    if (response.status === 403 || response.status === 410) {
-      throw new Error('YouTube rejected the media link (it may have expired). Try again.')
-    }
-    throw new Error(`Media stream failed with status ${response.status}`)
+// `bytes 0-4194303/12345678` -> 12345678. The total only appears on a ranged
+// reply, and it is the authoritative size the progress readout needs.
+const totalFromContentRange = (value) => {
+  const match = /\/\s*(\d+)\s*$/.exec(value || '')
+  return match ? Number(match[1]) : 0
+}
+
+const relayFailure = (response) => {
+  if (response.status === 403 || response.status === 410) {
+    return new Error('YouTube rejected the media link (it may have expired). Try again.')
   }
+  return new Error(`Media stream failed with status ${response.status}`)
+}
 
-  const total = Number(response.headers.get('content-length')) || 0
+// Stream one format through a relay, reporting bytes as they arrive.
+const streamOnce = async (cdnUrl, { onProgress, signal, maxBytes, expectedSize, control }) => {
   // yt-dlp reports the exact byte size; when it does, that figure decides
-  // whether this is too big, not the header. A header that disagrees must not
-  // push a perfectly mergeable video to the server.
+  // whether this is too big, not the response header. A header that disagrees
+  // must not push a perfectly mergeable video to the server.
   const known = expectedSize > 0 ? expectedSize : 0
-  const declared = known || total
-  if (maxBytes && declared > maxBytes) {
+  const chunks = []
+  let received = 0
+  // Better than a zero total while the first window is still in flight.
+  let total = known
+
+  if (maxBytes && known > maxBytes) {
     // Report the real figure: "too large" on its own gives no way to tell a
     // genuinely huge video from a wrong number.
-    const error = new Error(`This stream is ${formatBytes(declared)}, over the ${formatBytes(maxBytes)} browser limit`)
+    const error = new Error(`This stream is ${formatBytes(known)}, over the ${formatBytes(maxBytes)} browser limit`)
     error.code = TOO_LARGE
     throw error
   }
 
-  const reader = response.body.getReader()
-  const chunks = []
-  let received = 0
-
-  for (;;) {
-    // Held before the next chunk is asked for: a paused transfer stops pulling
-    // bytes, and the relay stops sending them.
-    await control?.waitWhilePaused()
-    const { done, value } = await reader.read()
-    if (done) break
-    // content-length can be absent; bail out on what has actually arrived.
-    if (maxBytes && received + value.length > maxBytes) {
-      await reader.cancel().catch(() => {})
+  // Refuses anything that grows past the browser limit mid-transfer, where
+  // content-length can be absent and the reported size can simply have been
+  // wrong. content-length can be absent; bail out on what has actually arrived.
+  const consume = (part) => {
+    if (maxBytes && received + part.length > maxBytes) {
       const error = new Error(`This stream is over the ${formatBytes(maxBytes)} browser limit`)
       error.code = TOO_LARGE
       throw error
     }
-    chunks.push(value)
-    received += value.length
+    chunks.push(part)
+    received += part.length
     onProgress?.({ received, total })
+  }
+
+  if (RELAY_API) {
+    // Window by window through the pass-through worker.
+    for (let offset = 0; ; offset += RELAY_WINDOW_BYTES) {
+      // Held before the next window is asked for: a paused transfer stops
+      // requesting bytes, so the relay sends no more.
+      await control?.waitWhilePaused()
+
+      const response = await fetch(`${RELAY_API}/stream?url=${encodeURIComponent(cdnUrl)}`, {
+        signal,
+        headers: { Range: `bytes=${offset}-${offset + RELAY_WINDOW_BYTES - 1}` },
+      })
+
+      // The previous window ended exactly at EOF; there is nothing left.
+      if (response.status === 416 && received > 0) break
+      if (!response.ok || !response.body) throw relayFailure(response)
+
+      const part = new Uint8Array(await response.arrayBuffer())
+      const rangedTotal = totalFromContentRange(response.headers.get('content-range'))
+      if (rangedTotal) total = rangedTotal
+      // A 200 (rather than 206) means the CDN ignored the Range and sent
+      // everything at once, so the length is the whole file.
+      if (response.status !== 206 && part.length) total = part.length
+
+      consume(part)
+
+      // A short window means the file ended; a 200 is done either way.
+      if (response.status !== 206) break
+      if (part.length < RELAY_WINDOW_BYTES) break
+      if (total && received >= total) break
+    }
+  } else {
+    // The server's /stream walks the windows itself, so one request is enough.
+    const response = await fetch(`${API}/stream?url=${encodeURIComponent(cdnUrl)}`, { signal })
+    if (!response.ok || !response.body) throw relayFailure(response)
+
+    total = Number(response.headers.get('content-length')) || total
+    if (maxBytes && total > maxBytes) {
+      const error = new Error(`This stream is ${formatBytes(total)}, over the ${formatBytes(maxBytes)} browser limit`)
+      error.code = TOO_LARGE
+      throw error
+    }
+
+    const reader = response.body.getReader()
+    for (;;) {
+      // Held before the next chunk is asked for: a paused transfer stops pulling
+      // bytes, and the relay stops sending them.
+      await control?.waitWhilePaused()
+      const { done, value } = await reader.read()
+      if (done) break
+      try {
+        consume(value)
+      } catch (error) {
+        await reader.cancel().catch(() => {})
+        throw error
+      }
+    }
   }
 
   // A single allocation at the end avoids a second full-size copy of the stream

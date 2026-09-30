@@ -1,0 +1,14 @@
+name = "tubeko-relay"
+main = "src/index.js"
+compatibility_date = "2026-09-01"
+
+# There are no bindings: the worker is a stateless pass-through and needs no KV,
+# R2 or D1. Deploy with `npx wrangler deploy`; the URL it prints is what goes in
+# VITE_RELAY_BASE on the client (see worker/README.md).
+
+[vars]
+# Left unset, the relay accepts any origin, because the media it serves is
+# already public. Set it to a comma-separated list of origins to stop other
+# sites spending your 100k free requests/day - for example:
+# ALLOWED_ORIGINS = "https://tubeko.vercel.app,http://localhost:5173"
+ALLOWED_ORIGINS = ""

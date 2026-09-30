@@ -404,8 +404,124 @@ const potMintCheck = () =>
     });
   });
 
+// --- yt-dlp concurrency control --------------------------------------------
+// Every lookup is a fresh Python process (150-250MB of RSS) on a 512MB free
+// instance, so a few simultaneous /videoInfo calls are enough to swap or OOM
+// the box and take every other request down with it. A small semaphore keeps a
+// bounded number in flight and queues the rest: a request waits its turn
+// instead of racing for memory. YTDLP_MAX_CONCURRENT tunes the ceiling.
+const YTDLP_MAX_CONCURRENT = Math.max(
+  1,
+  Number.parseInt(process.env.YTDLP_MAX_CONCURRENT, 10) || 2
+);
+
+// How long a queued lookup waits before giving up so the route can answer a
+// clean 503. Lookups take seconds, so a wait this long means the box is truly
+// saturated, not merely busy.
+const YTDLP_QUEUE_TIMEOUT_MS = Math.max(
+  1000,
+  Number.parseInt(process.env.YTDLP_QUEUE_TIMEOUT_MS, 10) || 60000
+);
+
+let ytdlpInFlight = 0;
+const ytdlpWaiters = [];
+
+const acquireYtdlpSlot = () => new Promise((resolve, reject) => {
+  const grant = () => {
+    ytdlpInFlight++;
+    resolve();
+  };
+
+  if (ytdlpInFlight < YTDLP_MAX_CONCURRENT) return grant();
+
+  const waiter = { grant, timer: null };
+  waiter.timer = setTimeout(() => {
+    const index = ytdlpWaiters.indexOf(waiter);
+    if (index !== -1) ytdlpWaiters.splice(index, 1);
+    const error = new Error('Server is busy: too many link lookups in progress');
+    error.statusCode = 503;
+    reject(error);
+  }, YTDLP_QUEUE_TIMEOUT_MS);
+  ytdlpWaiters.push(waiter);
+});
+
+const releaseYtdlpSlot = () => {
+  ytdlpInFlight--;
+  const waiter = ytdlpWaiters.shift();
+  if (!waiter) return;
+  clearTimeout(waiter.timer);
+  waiter.grant();
+};
+
+// --- Metadata cache -------------------------------------------------------
+// The same link is looked up far more often than it changes: a refresh, a
+// retry, a shared URL, or the client resolving formats after a failed itag all
+// repeat a lookup we just paid a Python process for. Caching the parsed answer
+// makes every repeat free, which is the cheapest way to raise how many people
+// the instance can serve at once. INFO_CACHE_TTL_MS=0 disables it.
+const INFO_CACHE_TTL_MS = Math.max(
+  0,
+  Number.parseInt(process.env.INFO_CACHE_TTL_MS, 10) || 15 * 60 * 1000
+);
+
+// Bounded so the cache cannot itself exhaust memory: each entry is a full
+// yt-dlp info dump, formats array and all.
+const INFO_CACHE_MAX_ENTRIES = Math.max(
+  1,
+  Number.parseInt(process.env.INFO_CACHE_MAX_ENTRIES, 10) || 50
+);
+
+const infoCache = new Map(); // key -> { expiresAt, value }
+
+// Key on the video id when we can find it, so the same video hits one entry
+// whatever URL shape it was pasted in (watch?v=, youtu.be/, shorts/, or a
+// playlist parameter bolted on). Anything unparseable falls back to the raw
+// string, which is no worse than not caching it.
+const infoCacheKey = (url) => {
+  const text = String(url || '').trim();
+  const match =
+    text.match(/[?&]v=([A-Za-z0-9_-]{11})/) ||
+    text.match(/youtu\.be\/([A-Za-z0-9_-]{11})/) ||
+    text.match(/\/(?:shorts|embed|live|v)\/([A-Za-z0-9_-]{11})/);
+  return match ? match[1] : text;
+};
+
+const readInfoCache = (key) => {
+  const hit = infoCache.get(key);
+  if (!hit) return null;
+  if (hit.expiresAt <= Date.now()) {
+    infoCache.delete(key);
+    return null;
+  }
+  // Refresh recency so a hot key is not the one evicted below.
+  infoCache.delete(key);
+  infoCache.set(key, hit);
+  return hit.value;
+};
+
+const writeInfoCache = (key, value) => {
+  if (INFO_CACHE_TTL_MS <= 0) return;
+  infoCache.set(key, { expiresAt: Date.now() + INFO_CACHE_TTL_MS, value });
+  while (infoCache.size > INFO_CACHE_MAX_ENTRIES) {
+    infoCache.delete(infoCache.keys().next().value);
+  }
+};
+
+// Look a link up once, reusing a cached answer when it is still fresh.
+// Successes are cached and failures are not, so a transient yt-dlp error is
+// never remembered for the whole TTL. Callers must treat the returned object as
+// read-only: it is shared with every other cache hit.
+const getVideoInfo = async (url) => {
+  const key = infoCacheKey(url);
+  const cached = readInfoCache(key);
+  if (cached) return cached;
+  const info = await runYtDlpCommand([url]);
+  if (info && typeof info === 'object') writeInfoCache(key, info);
+  return info;
+};
+
 // Helper function to safely run yt-dlp
-const runYtDlpCommand = (args, options = {}) => {
+const spawnYtDlp = (args, options = {}) => {
   return new Promise((resolve, reject) => {
     try {
       const ytdlpPath = path.join(
@@ -474,6 +590,18 @@ const runYtDlpCommand = (args, options = {}) => {
 };
 
 
+
+// Every metadata lookup goes through the semaphore, so the instance never runs
+// more than YTDLP_MAX_CONCURRENT yt-dlp processes at once however many requests
+// arrive together. The slot is released on every path, success or failure.
+const runYtDlpCommand = async (args, options = {}) => {
+  await acquireYtdlpSlot();
+  try {
+    return await spawnYtDlp(args, options);
+  } finally {
+    releaseYtdlpSlot();
+  }
+};
 
 // Cheap liveness probe. It exists mainly for the keep-alive ping
 // (.github/workflows/keep-alive.yml) and any uptime monitor: Render's free
@@ -722,7 +850,7 @@ app.get('/videoInfo', async (req, res) => {
     if (!url) return res.status(400).json({ error: 'URL required' });
 
     // runYtDlpCommand already includes --dump-json, headers, retries, etc.
-    const info = await runYtDlpCommand([url]);
+    const info = await getVideoInfo(url);
 
     // Validate response structure
     if (!info || !info.formats || !Array.isArray(info.formats)) {
@@ -822,6 +950,7 @@ app.get('/videoInfo', async (req, res) => {
 
     // Enhanced error messages
     let statusCode = 500;
+    if (error.statusCode) statusCode = error.statusCode;
     let errorMessage = error.message;
 
     if (error.message.includes('403')) {
@@ -951,7 +1080,7 @@ app.get('/download/full', async (req, res) => {
   // Ask yt-dlp for this video's formats and resolve the requested quality
   // against them. Only reached when the itags the client sent are unusable.
   const resolveFromQuality = async () => {
-    const info = await runYtDlpCommand([url]);
+    const info = await getVideoInfo(url);
     const formats = Array.isArray(info?.formats) ? info.formats : [];
     return resolveDownloadFormats(formats, quality);
   };
@@ -1065,7 +1194,12 @@ const RELAY_HOST_PATTERN = /(^|\.)googlevideo\.com$/i;
 // `Range: bytes=0-` transfer runs at ~30KiB/s and never finishes), while
 // bounded windows run at full link speed. So instead of proxying the stream
 // wholesale, walk the file in windows and stitch them together.
-const RELAY_WINDOW_BYTES = 4 * 1024 * 1024;
+//
+// 1MB, down from 4MB: windows are no longer collected in memory (see
+// pipeWindow), so the size now decides how long one upstream request lives
+// rather than how much it holds. A shorter window recovers sooner from a dropped
+// connection and has less to lose when one dies mid-flight.
+const RELAY_WINDOW_BYTES = 1 * 1024 * 1024;
 
 app.get('/stream', async (req, res) => {
   const { url } = req.query;
@@ -1094,32 +1228,6 @@ app.get('/stream', async (req, res) => {
     },
   });
 
-  // Read one window into memory before writing it out. Buffering is what makes
-  // the retry below safe: a window that dies half way through can be fetched
-  // again from its start without the client ever seeing duplicate or missing
-  // bytes. Windows are 4MB, so this is bounded.
-  const readWindow = async (start, end) => {
-    let lastError;
-    for (let attempt = 1; attempt <= 3; attempt++) {
-      try {
-        const upstream = await requestWindow(start, end);
-        if (upstream.status !== 200 && upstream.status !== 206) {
-          upstream.data.destroy();
-          throw new Error(`YouTube responded with ${upstream.status}`);
-        }
-        const chunks = [];
-        for await (const chunk of upstream.data) chunks.push(chunk);
-        return { headers: upstream.headers, body: Buffer.concat(chunks) };
-      } catch (error) {
-        // The CDN resets throttled connections (ECONNRESET) and drops slow
-        // ones, so a single bad window used to truncate the whole download.
-        lastError = error;
-        if (attempt < 3) await new Promise((resolve) => setTimeout(resolve, 250 * attempt));
-      }
-    }
-    throw lastError;
-  };
-
   // A bodyless GET emits 'close' on the request immediately, so watch the
   // response instead to notice the browser going away.
   let clientGone = false;
@@ -1127,40 +1235,86 @@ app.get('/stream', async (req, res) => {
     if (!res.writableEnded) clientGone = true;
   });
 
+  // The response headers have to be on the wire before the first byte, and the
+  // figures they carry come from the first window's reply - so this runs as soon
+  // as that reply arrives rather than once the window is complete. It runs for
+  // every window, so it has to leave the already-sent headers alone - setHeader
+  // after the first byte has gone out throws.
+  let total = 0;
+  const startResponse = (headers) => {
+    if (res.headersSent) return;
+    const range = headers['content-range'];
+    // Content-Range looks like "bytes 0-1048575/18642971"; the total after the
+    // slash is what lets the browser show a real progress bar.
+    total = Number(range && range.split('/')[1]) || Number(headers['content-length']) || 0;
+    res.status(200);
+    res.setHeader('Content-Type', headers['content-type'] || 'application/octet-stream');
+    res.setHeader('Accept-Ranges', 'bytes');
+    if (total) res.setHeader('Content-Length', total);
+  };
+
+  // Stream one window straight through to the client instead of collecting it in
+  // memory first. Nothing bigger than one socket chunk is ever held, so peak
+  // memory no longer scales with the window size or with how many downloads are
+  // running at once.
+  //
+  // A window is only retried while it has written nothing: once part of it is on
+  // the wire, fetching it again would duplicate those bytes. A failure after that
+  // point is surfaced as a truncated response, which the client already catches
+  // with its own length check and retries at the request level.
+  const pipeWindow = async (start, end) => {
+    let lastError;
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      let written = 0;
+      let upstream;
+      try {
+        upstream = await requestWindow(start, end);
+        if (upstream.status !== 200 && upstream.status !== 206) {
+          throw new Error(`YouTube responded with ${upstream.status}`);
+        }
+        startResponse(upstream.headers);
+
+        for await (const chunk of upstream.data) {
+          // Honour backpressure, otherwise a slow client lets the window pile up
+          // in the socket buffer instead of being pulled from the CDN as needed.
+          if (!res.write(chunk)) {
+            await new Promise((resolve) => res.once('drain', resolve));
+          }
+          written += chunk.length;
+          if (clientGone) {
+            upstream.data.destroy();
+            return written;
+          }
+        }
+        return written;
+      } catch (error) {
+        upstream?.data?.destroy?.();
+        lastError = error;
+        if (written > 0) throw error;
+        // The CDN resets throttled connections (ECONNRESET) and drops slow ones,
+        // so a single bad window used to truncate the whole download.
+        if (attempt < 3) await new Promise((resolve) => setTimeout(resolve, 250 * attempt));
+      }
+    }
+    throw lastError;
+  };
+
   try {
     let offset = 0;
-    let total = 0;
 
     while (!total || offset < total) {
       const end = total ? Math.min(offset + RELAY_WINDOW_BYTES - 1, total - 1) : offset + RELAY_WINDOW_BYTES - 1;
-      let window;
+      let written;
       try {
-        window = await readWindow(offset, end);
+        written = await pipeWindow(offset, end);
       } catch (error) {
         if (!res.headersSent) {
           return res.status(502).json({ error: 'Failed to relay stream', details: error.message });
         }
         throw error;
       }
-      if (!total) {
-        const range = window.headers['content-range'];
-        // Content-Range looks like "bytes 0-4194303/18642971"; the total after
-        // the slash is what lets the browser show a real progress bar.
-        total = Number(range && range.split('/')[1]) || Number(window.headers['content-length']) || 0;
-        res.status(200);
-        res.setHeader('Content-Type', window.headers['content-type'] || 'application/octet-stream');
-        res.setHeader('Accept-Ranges', 'bytes');
-        if (total) res.setHeader('Content-Length', total);
-      }
 
-      const written = window.body.length;
       if (written === 0) break; // no progress; stop rather than spin
-
-      // Honour backpressure, otherwise a big file buffers server-side.
-      if (!res.write(window.body)) {
-        await new Promise((resolve) => res.once('drain', resolve));
-      }
-
       if (clientGone) return;
       offset += written;
     }
