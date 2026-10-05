@@ -22,3 +22,10 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Added by `vercel link`: the local project link and Vercel's .env.local.
+# The negation mirrors the root file, which already ignores .env* but tracks
+# the template.
+.vercel
+.env*
+!.env.example
