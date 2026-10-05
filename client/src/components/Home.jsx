@@ -18,6 +18,7 @@ import { QUALITY_OPTIONS, DEFAULT_QUALITY, qualityOption } from '../lib/quality'
 import { useDismissOnOutsideClick } from '../lib/useDismissOnOutsideClick'
 import { API } from '../lib/api'
 import { audioJobFileUrl, forgetAudioJob, readAudioJobs, waitForAudioJob } from '../lib/audioJobs'
+import { forgetVideoJob, readVideoJobs, videoJobFileUrl, waitForVideoJob } from '../lib/videoJobs'
 import { saveUrlAs } from '../lib/browserDownload'
 
 // The spark field is built once, at module scope. Because these element objects keep
@@ -85,8 +86,9 @@ const Home = () => {
     const [playlistInfo, setPlaylistInfo] = useState(null)
     const [renderedCount, setRenderedCount] = useState(RENDER_CHUNK)
 
-    // Audio jobs an earlier visit left running on the server, shown so the finished
-    // files can be collected. See the reconnect effect below.
+    // Jobs an earlier visit left running on the server, shown so the finished files can
+    // be collected. Audio and video are remembered separately and offered together. See
+    // the reconnect effect below.
     const [recoveredJobs, setRecoveredJobs] = useState([])
 
     useDismissOnOutsideClick(startMenuRef, isStartMenuOpen, () => setIsStartMenuOpen(false))
@@ -97,21 +99,27 @@ const Home = () => {
 
     // Reconnect to anything a previous visit started. Every remembered job is polled
     // once here: one that already finished is offered straight away, and one still
-    // encoding joins the list the moment the server owns its file. A job the server no
+    // running joins the list the moment the server owns its file. A job the server no
     // longer knows (aged out, or lost to a restart) is dropped instead of lingering.
     useEffect(() => {
-        const remembered = readAudioJobs()
+        const remembered = [
+            ...readAudioJobs().map((entry) => ({ ...entry, kind: 'audio' })),
+            ...readVideoJobs().map((entry) => ({ ...entry, kind: 'video' })),
+        ]
         if (!remembered.length) return
         let cancelled = false
 
         remembered.forEach((entry) => {
-            waitForAudioJob(entry.id, {
+            const waitFor = entry.kind === 'video' ? waitForVideoJob : waitForAudioJob
+            const forget = entry.kind === 'video' ? forgetVideoJob : forgetAudioJob
+            waitFor(entry.id, {
                 onUpdate: (job) => {
                     if (cancelled || job.status !== 'ready') return
+                    const fallback = `${entry.title || 'audio'}.${entry.kind === 'video' ? 'mp4' : 'mp3'}`
                     setRecoveredJobs((prev) => (
-                        prev.some((item) => item.id === entry.id)
+                        prev.some((item) => item.id === entry.id && item.kind === entry.kind)
                             ? prev
-                            : [...prev, { id: entry.id, filename: job.filename || `${entry.title || 'audio'}.mp3` }]
+                            : [...prev, { id: entry.id, kind: entry.kind, filename: job.filename || fallback }]
                     ))
                 },
             }).catch((error) => {
@@ -120,7 +128,7 @@ const Home = () => {
                 // elapsed) is dropped. A network blip leaves the entry alone: the file
                 // may still be waiting on the next visit.
                 if (error?.code === 'JOB_GONE' || error?.code === 'JOB_FAILED') {
-                    forgetAudioJob(entry.id)
+                    forget(entry.id)
                 }
             })
         })
@@ -130,15 +138,20 @@ const Home = () => {
 
     // Hand a recovered file to the browser's download manager, then stop offering it.
     const collectRecoveredJob = (job) => {
-        saveUrlAs(audioJobFileUrl(job.id), job.filename)
-        forgetAudioJob(job.id)
+        saveUrlAs(
+            job.kind === 'video' ? videoJobFileUrl(job.id) : audioJobFileUrl(job.id),
+            job.filename
+        )
+        if (job.kind === 'video') forgetVideoJob(job.id)
+        else forgetAudioJob(job.id)
         setRecoveredJobs((prev) => prev.filter((item) => item.id !== job.id))
     }
 
     // "Not now": the file stays on the server until it ages out, but the banner stops
     // asking. Forgetting it locally is what makes that stick across reloads.
     const dismissRecoveredJob = (job) => {
-        forgetAudioJob(job.id)
+        if (job.kind === 'video') forgetVideoJob(job.id)
+        else forgetAudioJob(job.id)
         setRecoveredJobs((prev) => prev.filter((item) => item.id !== job.id))
     }
 

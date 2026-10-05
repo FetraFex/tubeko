@@ -23,6 +23,14 @@ import {
     waitForAudioJob,
 } from '../lib/audioJobs';
 import {
+    cancelVideoJob,
+    forgetVideoJob,
+    rememberVideoJob,
+    startVideoJob,
+    videoJobFileUrl,
+    waitForVideoJob,
+} from '../lib/videoJobs';
+import {
     selectAudioFormat,
     selectVideoFormatThatFits,
     totalBytes,
@@ -42,6 +50,18 @@ const MENU_ITEM =
 // stages is built to look the same, so one check covers both.
 const isAbort = (error) => error?.name === 'AbortError' || !!error?.aborted;
 const stopError = () => new DOMException('The download was stopped', 'AbortError');
+
+// What the row says while a server-side video job is running. The job reports a phase
+// rather than a sentence, and these are the same status keys the in-tab pipeline uses,
+// so a download reads the same whether the page or the server is doing the work.
+const PHASE_STATUS = {
+    queued: 'waiting',
+    resolving: 'starting',
+    video: 'downloadingBoth',
+    audio: 'downloadingAudio',
+    merging: 'merging',
+    done: 'saving',
+};
 
 
 const Video = forwardRef(({ title, thumbnail, videoId, duration, quality, onComplete, onStopped, hasQueueAfter, onDownloadOnly, onQueueAfter, onAudioDownloadOnly, onAudioQueueAfter }, ref) => {
@@ -329,9 +349,8 @@ const Video = forwardRef(({ title, thumbnail, videoId, duration, quality, onComp
                 // a higher-resolution format happens to encode smaller.
                 const smaller = selectVideoFormatThatFits(data.formats, audioBytes, MAX_BROWSER_BYTES, preferredVideoFormat);
                 if (smaller) {
-                    const smallerBytes = totalBytes([smaller, preferredAudioFormat]);
-                    console.info(`[download] ${formatBytes(browserBytes)} exceeds the ${formatBytes(MAX_BROWSER_BYTES)} browser limit; downloading ${smaller.quality} (${formatBytes(smallerBytes)}) in the browser instead`);
-                    addNotice(`${formatBytes(browserBytes)} is over the ${formatBytes(MAX_BROWSER_BYTES)} browser merge limit, so this one downloads at ${smaller.quality} (${formatBytes(smallerBytes)}) instead.`);
+                    const smallerBytes = totalBytes([smaller, preferredAudioFormat]);                console.info(`[download] ${formatBytes(browserBytes)} exceeds the ${formatBytes(MAX_BROWSER_BYTES)} browser limit; downloading ${smaller.quality} (${formatBytes(smallerBytes)}) in the browser instead`);
+                addNotice(`${formatBytes(browserBytes)} is over the ${formatBytes(MAX_BROWSER_BYTES)} browser merge limit, so this one downloads at ${smaller.quality} (${formatBytes(smallerBytes)}) instead.`);
                     preferredVideoFormat = smaller;
                     browserBytes = smallerBytes;
                 }
@@ -373,10 +392,7 @@ const Video = forwardRef(({ title, thumbnail, videoId, duration, quality, onComp
                 console.info(`[download] ${formatBytes(browserBytes)} exceeds the ${formatBytes(MAX_BROWSER_BYTES)} browser limit and nothing smaller fits; using the server`);
                 addNotice(`This video is ${formatBytes(browserBytes)} and no smaller version fits the ${formatBytes(MAX_BROWSER_BYTES)} browser merge limit, so the server downloaded and merged it.`);
 
-                blob = await downloadOnServer({
-                    videoItag: preferredVideoFormat.itag,
-                    audioItag: preferredAudioFormat.itag,
-                });
+                await downloadOnServer(control);
             } else {
                 try {
                     blob = await downloadInBrowser(preferredVideoFormat);
@@ -426,10 +442,7 @@ const Video = forwardRef(({ title, thumbnail, videoId, duration, quality, onComp
                             ? `${failure.message} and no smaller version fits - the server downloaded and merged it.`
                             : `Browser merge failed (${failure.message}) - the server finished this one.`);
 
-                        blob = await downloadOnServer({
-                            videoItag: preferredVideoFormat.itag,
-                            audioItag: preferredAudioFormat.itag,
-                        });
+                        await downloadOnServer(control);
                     } else if (retriedAt) {
                         addNotice(`This one was too large for the browser, so it downloaded at ${retriedAt} instead.`);
                     }
@@ -442,7 +455,10 @@ const Video = forwardRef(({ title, thumbnail, videoId, duration, quality, onComp
             setProgress(100);
             setSpeed('');
             setEta('');
-            saveBlob(blob, `${label}.mp4`);
+            // The browser path hands back a blob to save. The server path already gave
+            // its URL to the download manager inside downloadOnServer and left `blob`
+            // empty, so there is nothing to save from here.
+            if (blob) saveBlob(blob, `${label}.mp4`);
             // saveBlob is synchronous: the file is in the browser's hands by now, so the
             // row reports the finished state instead of holding on the save step.
             setStatusKey('complete');
@@ -467,10 +483,12 @@ const Video = forwardRef(({ title, thumbnail, videoId, duration, quality, onComp
         }
     };
 
-    // Fallback for anything the browser cannot finish (too large for wasm
-    // memory, a stream it could not fetch, a codec ffmpeg.wasm refuses): the
-    // server downloads, merges and streams the finished file back.
-    const downloadOnServer = async ({ videoItag, audioItag }) => {
+    // Fallback for anything the browser cannot finish (too large for wasm memory, a
+    // stream it could not fetch, a codec ffmpeg.wasm refuses): the server assembles the
+    // mp4 as a background job and the finished file is collected from a plain URL.
+    // That hands the transfer to the phone's own download manager, so a locked screen
+    // or a closed tab does not throw the work away.
+    const downloadOnServer = async (control) => {
         // The server assembles this one, so there are no bytes here to hold: it can
         // be stopped, not paused.
         setStage('processing');
@@ -480,27 +498,62 @@ const Video = forwardRef(({ title, thumbnail, videoId, duration, quality, onComp
         setSpeed('');
         setEta('');
 
-        const response = await fetch(
-            `${API}/download/full?url=${encodeURIComponent("https://www.youtube.com/watch?v=" + videoId)}&videoItag=${videoItag}&audioItag=${audioItag}&quality=${encodeURIComponent(quality)}`,
-            { signal: controlRef.current?.signal }
-        );
+        // Unique per attempt, not per video: two rows for the same link, or two people
+        // downloading it, must not be handed each other's job.
+        const jobId = `${videoId}-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
 
-        if (!response.ok) {
-            const err = await response.json().catch(() => ({ error: 'Download failed' }));
-            throw new Error(err.error || 'Download failed');
+        await startVideoJob({
+            url: `https://www.youtube.com/watch?v=${videoId}`,
+            quality,
+            title,
+            jobId,
+        });
+        // Mirrored before the first poll: a tab that dies between here and the next
+        // visit is exactly the case the recovery list exists for.
+        rememberVideoJob({ id: jobId, title, createdAt: Date.now() });
+
+        let job;
+        try {
+            job = await waitForVideoJob(jobId, {
+                signal: control.signal,
+                onUpdate: (update) => {
+                    setProgress(update.progress || 0);
+                    if (update.size) setSize({ downloaded: '', total: update.size });
+                    setSpeed(update.speed || '');
+                    setEta(update.eta || '');
+                    setStatusKey(PHASE_STATUS[update.phase] || 'mergingServer');
+                },
+            });
+        } catch (error) {
+            // Stop means "I do not want this", so the server job goes too rather than
+            // holding a yt-dlp slot for a file nobody will collect.
+            if (control.stopped || isAbort(error)) cancelVideoJob(jobId);
+            throw error;
         }
 
-        // The server re-resolves the formats itself when the itags it was given
-        // no longer exist, so it reports what it actually delivered. 'best'
-        // names no resolution to miss, so only a specific request is compared.
-        const delivered = response.headers.get('X-Delivered-Quality');
-        const requested = qualityOption(quality);
-        if (delivered && requested.height && delivered !== requested.label) {
-            addNotice(`The server could not use ${requested.label} for this video and delivered ${delivered} instead.`);
+        if (control.stopped) {
+            cancelVideoJob(jobId);
+            throw stopError();
         }
 
         setStatusKey('saving');
-        return response.blob();
+        setProgress(100);
+        setSpeed('');
+        setEta('');
+
+        // The server resolves the formats itself and clamps anything above its own
+        // ceiling, so what it delivered is what the row must report - 'best' names no
+        // resolution to miss, so only a specific request is compared.
+        const requested = qualityOption(quality);
+        if (job.quality && requested.height && job.quality !== requested.label) {
+            addNotice(`The server could not use ${requested.label} for this video and delivered ${job.quality} instead.`);
+        }
+
+        saveUrlAs(videoJobFileUrl(jobId), `${sanitizeFilename(title)}.mp4`);
+        // The browser's download manager now owns the file; the server copy has no
+        // further purpose and is swept on its own later.
+        forgetVideoJob(jobId);
+        return job;
     };
 
     useImperativeHandle(ref, () => ({

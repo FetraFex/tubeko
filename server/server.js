@@ -16,7 +16,7 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 const fileUpload = require('express-fileupload');
-const { resolveDownloadFormats } = require('./quality');
+const { resolveDownloadFormats, qualityToHeight } = require('./quality');
 
 // Download Endpoint
 const activeDownloads = new Map(); // Track active downloads
@@ -1717,26 +1717,68 @@ const AUDIO_JOB_MAX = Math.max(1, Number.parseInt(process.env.AUDIO_JOB_MAX, 10)
 
 const audioJobs = new Map(); // jobId -> job
 
+// Deletion is not always instant: Windows refuses to remove a file another process
+// still holds open, which is exactly what a cancelled job looks like for the second or
+// two before its child exits. Anything that fails to go away is remembered here and
+// retried by every later sweep, so a busy file cannot turn into a permanent leak.
+const queuedJobRemovals = new Set();
+
+const tryRemovePath = (target) => {
+  try {
+    fs.rmSync(target, { recursive: true, force: true });
+    queuedJobRemovals.delete(target);
+    return true;
+  } catch (_) {
+    queuedJobRemovals.add(target);
+    return false;
+  }
+};
+
+const retryQueuedRemovals = () => {
+  for (const target of [...queuedJobRemovals]) tryRemovePath(target);
+};
+
+// yt-dlp hands its heavy work to ffmpeg, so the process worth killing is the whole
+// tree: stopping only the parent would leave a grandchild transcoding into files
+// nobody wants any more. On a POSIX host the child is the only one there is.
+const killJobChild = (child) => {
+  if (!child || child.exitCode !== null) return;
+  if (process.platform === 'win32') {
+    spawn('taskkill', ['/pid', String(child.pid), '/T', '/F'], {
+      windowsHide: true,
+      stdio: 'ignore',
+    }).on('error', () => { try { child.kill(); } catch (_) { /* gone */ } });
+    return;
+  }
+  child.kill();
+};
+
+// A restart orphans whatever is in the job directories: the maps that name these files
+// live in memory, so after a restart nothing will ever ask for them again. Clearing at
+// boot is the only sweep that can see them.
+tryRemovePath(AUDIO_JOB_DIR);
+
 // A filename safe to put in a Content-Disposition header. The row's own title is what
-// the user recognised the video by, so keep it wherever a filesystem allows.
-const audioJobFilename = (title) => {
+// the user recognised the video by, so keep it wherever a filesystem allows. Shared by
+// the audio and video jobs, which differ only in extension.
+const safeDownloadFilename = (title, ext, fallback) => {
   const base = String(title || '')
-    .replace(/\.mp3$/i, '')
+    .replace(new RegExp(`\\.${ext}$`, 'i'), '')
     .replace(/[<>:"/\\|?*\u0000-\u001f]/g, ' ')
     .replace(/\s+/g, ' ')
     .trim()
     .slice(0, 120);
-  return `${base || 'audio'}.mp3`;
+  return `${base || fallback}.${ext}`;
 };
 
+const audioJobFilename = (title) => safeDownloadFilename(title, 'mp3', 'audio');
+
 // Best-effort, like the streaming route's own cleanup: a leftover temp file is not
-// worth failing a request over, and once the job is gone from the map nothing will
-// ask for it again.
+// worth failing a request over, and a file that refuses to be deleted now is retried
+// on a later sweep rather than being forgotten.
 const removeAudioJobFiles = (job) => {
   for (const suffix of ['mp3', 'm4a', 'webm', 'opus', 'mp4', 'part']) {
-    try {
-      fs.unlinkSync(`${job.stem}.${suffix}`);
-    } catch (_) { /* already gone */ }
+    tryRemovePath(`${job.stem}.${suffix}`);
   }
 };
 
@@ -1744,6 +1786,7 @@ const removeAudioJobFiles = (job) => {
 // encoding is never swept, however old it is, or a slow extraction would lose its own
 // output file halfway through.
 const sweepAudioJobs = () => {
+  retryQueuedRemovals();
   const now = Date.now();
   const inFlight = (job) => job.status === 'queued' || job.status === 'processing';
 
@@ -1799,6 +1842,14 @@ const startAudioJob = async (job) => {
     releaseYtdlpSlot();
   };
 
+  // Abandoned while it waited for a slot: there is no child to kill yet, and starting
+  // now would transcode for a job nobody can reach, holding the slot all the while.
+  if (job.cancelled || audioJobs.get(job.id) !== job) {
+    releaseSlot();
+    removeAudioJobFiles(job);
+    return;
+  }
+
   job.status = 'processing';
 
   try {
@@ -1844,6 +1895,13 @@ const startAudioJob = async (job) => {
     child.on('close', code => {
       releaseSlot();
       job.child = null;
+
+      // Deleted while it ran: the file this run produced is nobody's, so it goes now
+      // rather than waiting for a sweep that can no longer find it.
+      if (audioJobs.get(job.id) !== job) {
+        removeAudioJobFiles(job);
+        return;
+      }
 
       // No output means the extraction failed. code 0 with no file is yt-dlp skipping
       // a stream it could not postprocess - the failure this whole route exists to
@@ -1954,9 +2012,396 @@ app.get('/download/audio/job/:jobId/file', (req, res) => {
 app.delete('/download/audio/job/:jobId', (req, res) => {
   const job = audioJobs.get(req.params.jobId);
   if (!job) return res.status(204).end();
-  if (job.child && job.child.exitCode === null) job.child.kill();
+  // Read by startAudioJob: while it waits for a slot there is no child yet, so this
+  // flag is what stops the extraction from starting afterwards.
+  job.cancelled = true;
+  killJobChild(job.child);
   removeAudioJobFiles(job);
   audioJobs.delete(job.id);
+  res.status(204).end();
+});
+
+// Background video jobs (mp4) -------------------------------------------------
+//
+// The same shape as the audio jobs above, because the phone has the same problem:
+// an mp4 only has to be *assembled*, and a tab that closes mid-merge would throw
+// away a file that was seconds from being finished.
+//
+// One yt-dlp run does the whole job - both streams, then the merge - so there is a
+// single process to report on and a single one to kill. The merge is a stream copy
+// (-c:v copy) rather than a re-encode, so the instance pays bandwidth, not CPU.
+//
+// Two caps keep this safe on a free instance:
+//   * height: above 1080p YouTube hands back VP9/AV1, which a phone gains nothing
+//     from and the request is clamped to it. The client is told what was actually
+//     delivered, so a clamped download is reported rather than silently shrunk.
+//   * bytes: /tmp is the instance's ephemeral disk, and the finished mp4 sits there
+//     until it is collected or swept. A video over the ceiling fails with a
+//     sentence instead of filling the disk.
+const VIDEO_JOB_DIR = path.join(os.tmpdir(), 'yt-video-jobs');
+const VIDEO_JOB_MAX_AGE_MS = Math.max(
+  60 * 1000,
+  Number.parseInt(process.env.VIDEO_JOB_MAX_AGE_MS, 10) || 60 * 60 * 1000
+);
+// Fewer than audio: these files are megabytes each, so the count rather than the
+// age is what protects the disk.
+const VIDEO_JOB_MAX = Math.max(1, Number.parseInt(process.env.VIDEO_JOB_MAX, 10) || 2);
+const VIDEO_JOB_MAX_HEIGHT = Math.max(144, Number.parseInt(process.env.VIDEO_JOB_MAX_HEIGHT, 10) || 1080);
+const VIDEO_JOB_MAX_BYTES = Math.max(
+  16 * 1024 * 1024,
+  Number.parseInt(process.env.VIDEO_JOB_MAX_BYTES, 10) || 1024 * 1024 * 1024
+);
+
+// Leftovers from a run that was killed rather than shut down: see the audio job dir.
+tryRemovePath(VIDEO_JOB_DIR);
+
+const videoJobs = new Map(); // jobId -> job
+
+// Each job owns a directory rather than a set of extensions: yt-dlp writes
+// intermediate `video.f<itag>.<ext>` files next to the result, and dropping the
+// directory is the only cleanup that catches every one of them. A directory that
+// cannot go yet (its download is still writing into it) is queued and retried.
+const removeVideoJobFiles = (job) => {
+  if (job && job.jobDir) tryRemovePath(job.jobDir);
+};
+
+const videoJobFilename = (title) => safeDownloadFilename(title, 'mp4', 'video');
+
+// A job is in flight unless it reached a terminal state. Resolution counts: the
+// formats are fetched before a yt-dlp slot is taken, and a job that has not started
+// encoding yet is exactly the one a sweep must not delete.
+const videoJobInFlight = (job) => job.status !== 'ready' && job.status !== 'failed';
+
+const sweepVideoJobs = () => {
+  retryQueuedRemovals();
+  const now = Date.now();
+
+  for (const [id, job] of videoJobs) {
+    if (videoJobInFlight(job)) continue;
+    if (now - job.createdAt < VIDEO_JOB_MAX_AGE_MS) continue;
+    removeVideoJobFiles(job);
+    videoJobs.delete(id);
+  }
+
+  while (videoJobs.size > VIDEO_JOB_MAX) {
+    let oldest = null;
+    for (const [id, job] of videoJobs) {
+      if (videoJobInFlight(job)) continue;
+      if (!oldest || job.createdAt < oldest.job.createdAt) oldest = { id, job };
+    }
+    if (!oldest) break;
+    removeVideoJobFiles(oldest.job);
+    videoJobs.delete(oldest.id);
+  }
+};
+
+const videoJobView = (job) => ({
+  jobId: job.id,
+  status: job.status,
+  phase: job.phase,
+  progress: Math.round(job.progress || 0),
+  size: job.size || '',
+  speed: job.speed || '',
+  eta: job.eta || '',
+  quality: job.quality || '',
+  filename: job.filename,
+  bytes: job.bytes || null,
+  error: job.error || null,
+  createdAt: job.createdAt,
+  fileUrl: job.status === 'ready' ? `/download/video/job/${job.id}/file` : null,
+});
+
+// 'best' names no height to clamp, so it meets the ceiling rather than the request;
+// anything above the ceiling is brought down to it.
+const clampVideoQuality = (quality) => {
+  const height = qualityToHeight(quality);
+  return height && height <= VIDEO_JOB_MAX_HEIGHT ? quality : `${VIDEO_JOB_MAX_HEIGHT}p`;
+};
+
+// The yt-dlp invocation for an mp4 job: two streams (or one progressive file) and a
+// merge into mp4. No postprocessor beyond the merge, so nothing is re-encoded.
+const videoYtDlpArgs = ({ url, formatSpec, outputTemplate }) => [
+  url,
+  '--no-warnings',
+  '--no-check-certificates',
+  '--force-ipv4',
+  '--retries', '5',
+  '--fragment-retries', '5',
+  '--socket-timeout', '30',
+  '--newline',
+  '--ffmpeg-location', ffmpegPath,
+  '-f', formatSpec,
+  '--merge-output-format', 'mp4',
+  '--add-header', 'User-Agent:Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36',
+  '--add-header', 'Accept-Language:en-US,en;q=0.9',
+  ...cookieArgs(),
+  ...potYtDlpArgs(),
+  '-o', outputTemplate,
+];
+
+// Download and merge, with no tab watching. Deliberately detached: the close handler
+// records the outcome, so the job finishes whether or not anyone polls it.
+const startVideoJob = async (job) => {
+  // Formats are resolved before a slot is taken, because getVideoInfo takes one itself
+  // and holding a slot while asking for a second is how a two-slot box deadlocks.
+  try {
+    job.status = 'resolving';
+    job.phase = 'resolving';
+    fs.mkdirSync(job.jobDir, { recursive: true });
+
+    const info = await getVideoInfo(job.url);
+    const formats = Array.isArray(info?.formats) ? info.formats : [];
+    const resolved = resolveDownloadFormats(formats, clampVideoQuality(job.quality));
+    if (!resolved.video.itag) {
+      throw new Error('No downloadable video format was found for this link');
+    }
+
+    const videoFormat = formats.find((f) => String(f.format_id) === String(resolved.video.itag));
+    const audioFormat = formats.find((f) => String(f.format_id) === String(resolved.audio.itag));
+    // A progressive format already carries audio; asking yt-dlp for
+    // "video+audio" on top of it is a refused request, so it is fetched alone.
+    const videoHasAudio = Boolean(videoFormat?.acodec) && videoFormat.acodec !== 'none';
+    const sizeOf = (format) => Number(format?.filesize) || Number(format?.filesize_approx) || 0;
+
+    const expected = sizeOf(videoFormat) + (videoHasAudio ? 0 : sizeOf(audioFormat));
+    if (expected > VIDEO_JOB_MAX_BYTES) {
+      throw new Error(
+        `${formatSize(expected)} is over the ${formatSize(VIDEO_JOB_MAX_BYTES)} this server can hold - pick a lower quality.`
+      );
+    }
+
+    job.quality = resolved.video.label;
+    job.totalSteps = videoHasAudio || !resolved.audio.itag ? 1 : 2;
+    job.formatSpec = job.totalSteps === 1
+      ? String(resolved.video.itag)
+      : `${resolved.video.itag}+${resolved.audio.itag}`;
+  } catch (error) {
+    job.status = 'failed';
+    job.error = error.message || 'Could not resolve this video';
+    return;
+  }
+
+  // The job may have been abandoned while its formats were being resolved - a Stop
+  // press arrives before there is a child to kill - and downloading for a job nobody
+  // can reach would leave a file no sweep knows about.
+  if (job.cancelled || videoJobs.get(job.id) !== job) {
+    removeVideoJobFiles(job);
+    return;
+  }
+
+  try {
+    await acquireYtdlpSlot();
+  } catch (error) {
+    job.status = 'failed';
+    job.error = error.message;
+    return;
+  }
+
+  let released = false;
+  const releaseSlot = () => {
+    if (released) return;
+    released = true;
+    releaseYtdlpSlot();
+  };
+
+  job.status = 'downloading';
+  job.phase = 'video';
+
+  // The download is 80% of the bar and the merge 20%, split across the streams, so
+  // one percentage covers every phase instead of jumping backwards at each one.
+  const weight = 80 / (job.totalSteps || 1);
+
+  try {
+    const child = spawn(job.ytdlpPath, videoYtDlpArgs({
+      url: job.url,
+      formatSpec: job.formatSpec,
+      outputTemplate: job.outputTemplate,
+    }), { stdio: ['ignore', 'pipe', 'pipe'], shell: false, windowsHide: true });
+    job.child = child;
+
+    // With a file destination yt-dlp puts its progress on stdout, and the pipe has to
+    // be drained either way: a full buffer would stall a long download.
+    let stdoutBuffer = '';
+    let lastPercent = -1;
+    let step = 0;
+    child.stdout.on('data', (chunk) => {
+      stdoutBuffer += chunk.toString();
+      const lines = stdoutBuffer.split(/\r?\n/);
+      stdoutBuffer = lines.pop(); // keep the trailing partial line
+      for (const line of lines) {
+        if (/\[(Merger|ffmpeg)\]/i.test(line)) {
+          if (job.phase === 'merging') continue;
+          job.status = 'merging';
+          job.phase = 'merging';
+          job.progress = 80;
+          job.size = '';
+          job.speed = '';
+          job.eta = '';
+          continue;
+        }
+
+        const parsed = parseYtDlpProgress(line);
+        if (!parsed) continue;
+        // Percentages start over for the next stream: a drop this large is a new
+        // file, not a re-report of the current one.
+        if (lastPercent >= 0 && parsed.percent < lastPercent - 25) step += 1;
+        lastPercent = parsed.percent;
+        job.phase = step >= 1 ? 'audio' : 'video';
+        job.progress = Math.min(79.9, step * weight + (parsed.percent / 100) * weight);
+        job.size = parsed.total;
+        job.speed = parsed.speed;
+        job.eta = parsed.eta;
+      }
+    });
+
+    child.stderr.on('data', (data) => {
+      const output = data.toString().trim();
+      if (output.includes('ERROR')) console.error('[download/video/job]', output);
+    });
+
+    child.on('error', (error) => {
+      console.error('[download/video/job] process error:', error);
+      job.child = null;
+      job.status = 'failed';
+      job.error = error.message;
+      releaseSlot();
+    });
+
+    child.on('close', (code) => {
+      releaseSlot();
+      job.child = null;
+
+      // Deleted while it ran: the files this run produced are nobody's, so they go
+      // now rather than waiting for a sweep that can no longer find them.
+      if (videoJobs.get(job.id) !== job) {
+        removeVideoJobFiles(job);
+        return;
+      }
+
+      // No output means the merge failed. code 0 with no file is a format the muxer
+      // refused - it must not be reported as success.
+      if (code !== 0 || !fs.existsSync(job.outputPath)) {
+        job.status = 'failed';
+        job.error = code === 0
+          ? 'The server could not assemble an mp4 for this video'
+          : `Process exited with code ${code}`;
+        // Failed runs leave partial streams behind; they hold no value to anyone.
+        removeVideoJobFiles(job);
+        return;
+      }
+
+      job.status = 'ready';
+      job.phase = 'done';
+      job.progress = 100;
+      job.bytes = fs.statSync(job.outputPath).size;
+      job.size = '';
+      job.speed = '';
+      job.eta = '';
+      // Left on disk on purpose: this is the file a killed tab comes back for. The
+      // sweep above is what eventually clears it.
+    });
+  } catch (error) {
+    releaseSlot();
+    job.child = null;
+    job.status = 'failed';
+    job.error = error.message;
+    removeVideoJobFiles(job);
+  }
+};
+
+// Start an mp4 and answer straight away with the id to follow it by.
+app.post('/download/video/job', (req, res) => {
+  const { url, quality, title, id } = req.body || {};
+  if (!url) return res.status(400).json({ error: 'url is required' });
+
+  sweepVideoJobs();
+
+  const jobId = String(id || Math.random().toString(36).slice(2, 10));
+  const existing = videoJobs.get(jobId);
+  if (existing) return res.json(videoJobView(existing));
+
+  const ytdlpPath = path.join(
+    __dirname,
+    process.platform === 'win32' ? 'yt-dlp.exe' : 'yt-dlp'
+  );
+
+  const jobDir = path.join(VIDEO_JOB_DIR, `video_${Date.now()}_${jobId}`);
+  const job = {
+    id: jobId,
+    url,
+    quality: quality || `${VIDEO_JOB_MAX_HEIGHT}p`,
+    status: 'queued',
+    phase: 'queued',
+    progress: 0,
+    size: '',
+    speed: '',
+    eta: '',
+    filename: videoJobFilename(title),
+    jobDir,
+    // yt-dlp resolves %(ext)s itself, so each stream keeps its own extension and the
+    // merge lands on the .mp4 named here.
+    outputTemplate: path.join(jobDir, 'video.%(ext)s'),
+    outputPath: path.join(jobDir, 'video.mp4'),
+    ytdlpPath,
+    formatSpec: '',
+    totalSteps: 1,
+    child: null,
+    bytes: null,
+    error: null,
+    createdAt: Date.now(),
+  };
+  videoJobs.set(jobId, job);
+
+  // Not awaited by design: the point of a job is that it runs on its own.
+  startVideoJob(job).catch((error) => {
+    job.status = 'failed';
+    job.error = error.message;
+  });
+
+  console.log(`[download/video/job] ${jobId} started for ${url}`);
+  res.status(202).json(videoJobView(job));
+});
+
+// Follow a job's progress. The row polls this while its tab is alive; after the tab
+// is gone it is what the recovery list reads to find out whether the file made it.
+app.get('/download/video/job/:jobId', (req, res) => {
+  const job = videoJobs.get(req.params.jobId);
+  if (!job) return res.status(404).json({ error: 'Unknown video job' });
+  res.json(videoJobView(job));
+});
+
+// The finished mp4, at a plain URL the browser's own download manager can pull - which
+// on Android keeps transferring after the page is closed.
+app.get('/download/video/job/:jobId/file', (req, res) => {
+  const job = videoJobs.get(req.params.jobId);
+  if (!job) return res.status(404).json({ error: 'Unknown video job' });
+  if (job.status !== 'ready') {
+    return res.status(409).json({ error: 'The video is not ready yet', status: job.status });
+  }
+  if (!fs.existsSync(job.outputPath)) {
+    job.status = 'failed';
+    job.error = 'The finished file is no longer on the server';
+    return res.status(410).json({ error: job.error });
+  }
+  res.download(job.outputPath, job.filename, (error) => {
+    if (error) console.error(`[download/video/job] ${job.id} send failed: ${error.message}`);
+  });
+});
+
+// Abandon a job: stop anything still downloading and drop the directory. A file nobody
+// will collect must not go on holding the instance's yt-dlp slot.
+app.delete('/download/video/job/:jobId', (req, res) => {
+  const job = videoJobs.get(req.params.jobId);
+  if (!job) return res.status(204).end();
+  // Read by startVideoJob: while formats are resolving there is no child yet, so this
+  // flag is what stops the download from starting afterwards.
+  job.cancelled = true;
+  killJobChild(job.child);
+  removeVideoJobFiles(job);
+  // The child may still be holding the directory for a moment; if the removal above
+  // was refused it is queued, and this second attempt an instant later usually wins.
+  setTimeout(() => tryRemovePath(job.jobDir), 2000);
+  videoJobs.delete(job.id);
   res.status(204).end();
 });
 
