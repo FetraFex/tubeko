@@ -18,6 +18,26 @@ html {
   --playlist-row: 200px;
   /* Must match gap-y-6 on the panel. */
   --playlist-gap: 1.5rem;
+  /* How many rows the panel shows before it scrolls, plus a ceiling on the panel
+     itself. Four rows is the desktop panel; a tablet holds three and a phone two,
+     where the ceiling also keeps the panel inside a short (landscape) screen. */
+  --playlist-rows: 4;
+  --playlist-screen-cap: 100vh;
+}
+
+@media (max-width: 1023px) {
+  :root {
+    --playlist-rows: 3;
+  }
+}
+
+@media (max-width: 639px) {
+  :root {
+    --playlist-rows: 2;
+    /* 62% of a phone screen, but never less than one whole row: a landscape phone is
+       shorter than the row it is scrolling, and half a row in view helps nobody. */
+    --playlist-screen-cap: max(62vh, 15rem);
+  }
 }
 
 /* styles.css or inside a <style> tag */
@@ -159,11 +179,16 @@ html {
     contain-intrinsic-size: auto var(--playlist-row);
   }
 
-  /* The panel shows four rows and scrolls the rest. The height is computed from the row
-     size above instead of from a measured row, so it is the same on every screen and
-     never changes while the list is scrolled. */
+  /* The panel shows --playlist-rows rows and scrolls the rest. The height is computed
+     from the row size above instead of from a measured row, so it is the same at every
+     width that shares a breakpoint and never changes while the list is scrolled. The
+     second half of the min() is the ceiling: it only bites when the rows asked for are
+     taller than the screen the panel is scrolling in. */
   .playlist-viewport {
-    max-height: calc(4 * var(--playlist-row) + 3 * var(--playlist-gap));
+    max-height: min(
+      calc(var(--playlist-rows) * var(--playlist-row) + (var(--playlist-rows) - 1) * var(--playlist-gap)),
+      var(--playlist-screen-cap)
+    );
   }
 
   .hero-scrim {

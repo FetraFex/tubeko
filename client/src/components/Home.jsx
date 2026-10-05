@@ -585,22 +585,22 @@ const Home = () => {
                     content, so a long playlist makes the hero taller (pushing the section
                     below down) instead of being capped to the viewport or moving the
                     controls above. */}
-                <div className='z-50 w-full flex flex-col items-center px-2 pb-24'>
+                <div className='z-50 w-full flex flex-col items-center px-3 pb-24 sm:px-4'>
                     {videos.length > 0 && (
                         <>
                             {playlistInfo && (
-                                <div className='mt-10 flex w-full items-center gap-4 rounded-2xl border border-[#72ffce]/15 bg-[#08130f]/60 p-4 text-left lg:w-3/5 xl:w-[54%] 2xl:w-[46%]'>
-                                    <span className='flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-[#72ffce]/15'>
+                                <div className='mt-8 flex w-full flex-wrap items-center gap-3 rounded-2xl border border-[#72ffce]/15 bg-[#08130f]/60 p-3 text-left sm:mt-10 sm:gap-4 sm:p-4 lg:w-3/5 xl:w-[54%] 2xl:w-[46%]'>
+                                    <span className='flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-[#72ffce]/15 sm:h-11 sm:w-11'>
                                         <FontAwesomeIcon icon={faListUl} className='text-[#a7ffe2]' />
                                     </span>
                                     <div className='min-w-0 flex-1'>
-                                        <p className='truncate font-semibold text-white'>{playlistInfo.title}</p>
+                                        <p className='truncate text-sm font-semibold text-white sm:text-base'>{playlistInfo.title}</p>
                                         <p className='truncate text-xs text-white/55'>
                                             {[playlistInfo.channel, videoCountLabel].filter(Boolean).join(' · ')}
                                         </p>
                                     </div>
                                     {renderedCount < videos.length && (
-                                        <span className='shrink-0 text-xs text-[#72ffce]/80'>
+                                        <span className='shrink-0 text-[11px] text-[#72ffce]/80 sm:text-xs'>
                                             {t.showing.replace('{shown}', renderedCount).replace('{total}', videos.length)}
                                         </span>
                                     )}
@@ -608,7 +608,7 @@ const Home = () => {
                             )}
                             {/* The scroll button only exists while something is running, so it
                                 never sits in the row with nothing to scroll to. */}
-                            <div className='mt-8 flex flex-wrap items-center justify-center gap-3'>
+                            <div className='mt-6 flex flex-wrap items-center justify-center gap-3 sm:mt-8'>
                                 <div ref={startMenuRef} className='relative'>
                                     <button
                                         type='button'
@@ -660,11 +660,12 @@ const Home = () => {
                                     </button>
                                 )}
                             </div>
-                            {/* Four rows tall and fixed: the playlist scrolls inside the panel
-                                instead of resizing it. */}
+                            {/* Fixed at however many rows this screen gets (--playlist-rows in
+                                index.css): the playlist scrolls inside the panel instead of
+                                resizing it as it grows. */}
                             <div
                                 onScroll={handleListScroll}
-                                className='playlist-viewport mt-5 w-full lg:w-3/5 xl:w-[54%] 2xl:w-[46%] flex custom-scrollbar flex-col gap-y-6 overflow-y-auto'
+                                className='playlist-viewport mt-4 w-full lg:w-3/5 xl:w-[54%] 2xl:w-[46%] flex custom-scrollbar flex-col gap-y-6 overflow-y-auto sm:mt-5'
                             >
                                 {videos.slice(0, renderedCount).map((video, index) => (
                                     <Video

@@ -501,23 +501,26 @@ const Video = forwardRef(({ title, thumbnail, videoId, duration, quality, onComp
         getElement: () => cardRef.current
     }));
 
+    // One row, sized by its breakpoint: the card steps down its padding, gap and type
+    // for a phone and only widens its thumbnail where there is room for it, so the text
+    // column keeps a usable width on the narrowest screen.
     return (
-        <div ref={cardRef} className='playlist-card flex gap-x-5 w-full text-left rounded-2xl border border-[#72ffce]/15 bg-[#08130f]/70 p-4 shadow-[0_18px_40px_-26px_rgba(0,0,0,0.95)] transition-colors duration-300 hover:border-[#72ffce]/40 hover:bg-[#08130f]/90'>
-            <div className='shrink-0 self-start overflow-hidden rounded-xl ring-1 ring-white/10'>
+        <div ref={cardRef} className='playlist-card flex gap-x-3 w-full text-left rounded-2xl border border-[#72ffce]/15 bg-[#08130f]/70 p-3 shadow-[0_18px_40px_-26px_rgba(0,0,0,0.95)] transition-colors duration-300 hover:border-[#72ffce]/40 hover:bg-[#08130f]/90 sm:gap-x-5 sm:p-4'>
+            <div className='shrink-0 self-center overflow-hidden rounded-xl ring-1 ring-white/10 sm:self-start'>
                 {/* decoding=async plus lazy loading: a long playlist is hundreds of
                     thumbnails, and decoding them all up front is what made scrolling
                     stutter even when the rows themselves were cheap to paint. */}
-                <img src={thumbnail} alt={title} loading='lazy' decoding='async' className='w-60 rounded-xl' />
+                <img src={thumbnail} alt={title} loading='lazy' decoding='async' className='w-28 rounded-xl sm:w-40 md:w-52 lg:w-60' />
             </div>
             <div className='flex min-w-0 justify-between flex-col flex-1'>
                 <div>
-                    <h3 className='text-white font-semibold text-base leading-snug sm:text-lg line-clamp-2'>{title}</h3>
+                    <h3 className='text-white font-semibold text-sm leading-snug line-clamp-2 sm:text-lg'>{title}</h3>
                     {/* The length comes from the API; a row whose lookup failed simply
                         drops the clock rather than showing a made-up one. */}
                     {duration && <h3 className='mt-1 text-xs text-[#a7ffe2]/70'>{duration}</h3>}
                 </div>
                 <div className='w-full'>
-                    <h3 className={`flex items-center gap-2 text-xs uppercase tracking-[0.14em] ${completed ? 'text-[#72ffce]' : 'text-[#a7ffe2]/80'}`}>
+                    <h3 className={`flex min-w-0 items-center gap-2 text-[10px] uppercase tracking-[0.14em] ${completed ? 'text-[#72ffce]' : 'text-[#a7ffe2]/80'} sm:text-xs`}>
                         {completed && <FontAwesomeIcon icon={faCircleCheck} />}
                         {/* Keyed rather than stored as text, so this line follows a
                             language switch like every other label on the row. */}
@@ -535,7 +538,7 @@ const Video = forwardRef(({ title, thumbnail, videoId, duration, quality, onComp
                             </div>
                         </div>
                     </div>
-                    <div className="mt-2 flex justify-between text-[11px] text-white/55">
+                    <div className="mt-2 flex flex-wrap justify-between gap-x-3 text-[11px] text-white/55">
                         <p>
                             {progress.toFixed(1)}%
                             {size.total ? ` · ${size.downloaded ? `${size.downloaded} / ` : ''}${size.total}` : ''}
@@ -617,14 +620,14 @@ const Video = forwardRef(({ title, thumbnail, videoId, duration, quality, onComp
                         )}
                     </AnimatePresence>
                 </div>
-                <div className="mt-4 flex gap-x-3">
-                    <div ref={audioMenuRef} className="relative flex-1">
+                <div className="mt-3 flex flex-wrap gap-2 sm:mt-4 sm:gap-x-3">
+                    <div ref={audioMenuRef} className="relative min-w-[7rem] flex-1">
                         <button
                             type='button'
                             onClick={() => setIsAudioMenuOpen(open => !open)}
                             aria-expanded={isAudioMenuOpen}
                             aria-haspopup='menu'
-                            className="flex w-full items-center justify-center gap-2 rounded-full bg-[#72ffce] px-4 py-2 text-sm font-semibold text-black shadow-[0_0_22px_-6px_#72ffce] transition-colors duration-300 hover:bg-[#a7ffe2]"
+                            className="flex w-full items-center justify-center gap-2 rounded-full bg-[#72ffce] px-3 py-2 text-sm font-semibold text-black shadow-[0_0_22px_-6px_#72ffce] transition-colors duration-300 hover:bg-[#a7ffe2] sm:px-4"
                         >
                             <span>{t.mp3}</span>
                             <FontAwesomeIcon icon={faChevronDown} className={`text-xs transition-transform duration-200 ${isAudioMenuOpen ? 'rotate-180' : ''}`} />
@@ -660,13 +663,13 @@ const Video = forwardRef(({ title, thumbnail, videoId, duration, quality, onComp
                         </AnimatePresence>
                     </div>
 
-                    <div ref={downloadMenuRef} className="relative flex-1">
+                    <div ref={downloadMenuRef} className="relative min-w-[7rem] flex-1">
                         <button
                             type='button'
                             onClick={() => setIsDownloadMenuOpen(open => !open)}
                             aria-expanded={isDownloadMenuOpen}
                             aria-haspopup='menu'
-                            className="flex w-full items-center justify-center gap-2 rounded-full bg-[#72ffce] px-4 py-2 text-sm font-semibold text-black shadow-[0_0_22px_-6px_#72ffce] transition-colors duration-300 hover:bg-[#a7ffe2]"
+                            className="flex w-full items-center justify-center gap-2 rounded-full bg-[#72ffce] px-3 py-2 text-sm font-semibold text-black shadow-[0_0_22px_-6px_#72ffce] transition-colors duration-300 hover:bg-[#a7ffe2] sm:px-4"
                         >
                             <span>{t.mp4}</span>
                             <FontAwesomeIcon icon={faChevronDown} className={`text-xs transition-transform duration-200 ${isDownloadMenuOpen ? 'rotate-180' : ''}`} />
