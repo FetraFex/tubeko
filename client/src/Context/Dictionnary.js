@@ -76,7 +76,11 @@ const dictionary = {
             videosOfTotal: "{shown} of {total} videos",
             noVideos: "This playlist has no downloadable videos.",
             badLink: "Could not parse a video or playlist from that link.",
-            serverUnreachable: "Could not reach the server. Is it running on port 3000?"
+            serverUnreachable: "Could not reach the server. Is it running on port 3000?",
+            recoveredTitle: "Finished downloads",
+            recoveredHint: "These were started in an earlier visit and the server finished them. Save them before they expire.",
+            saveFile: "Save file",
+            dismiss: "Not now"
         },
         followus: "Follow Us",
         scroll: "Scroll",
@@ -351,7 +355,11 @@ const dictionary = {
             videosOfTotal: "{shown} amin'ny {total} horonantsary",
             noVideos: "Tsy misy horonantsary azo alaina ao amin'ity playlist ity.",
             badLink: "Tsy hita ao amin'io rohy io ny horonantsary na ny playlist.",
-            serverUnreachable: "Tsy tratra ny serveur. Mandeha amin'ny port 3000 ve izy?"
+            serverUnreachable: "Tsy tratra ny serveur. Mandeha amin'ny port 3000 ve izy?",
+            recoveredTitle: "Fakana vita",
+            recoveredHint: "Nanomboka tamin'ny fitsidihana teo aloha ireto ary ny serveur no nahavita azy. Tahiry izy ireo fony mbola tsy lany andro.",
+            saveFile: "Tahirizo ny rakitra",
+            dismiss: "Tsy izao"
         },
         followus: "Araho amin'ny rohy",
         scroll: "Hamantatra",
@@ -626,7 +634,11 @@ const dictionary = {
             videosOfTotal: "{shown} sur {total} vidéos",
             noVideos: "Cette playlist ne contient aucune vidéo téléchargeable.",
             badLink: "Impossible de reconnaître une vidéo ou une playlist dans ce lien.",
-            serverUnreachable: "Impossible de joindre le serveur. Est-il lancé sur le port 3000 ?"
+            serverUnreachable: "Impossible de joindre le serveur. Est-il lancé sur le port 3000 ?",
+            recoveredTitle: "Téléchargements terminés",
+            recoveredHint: "Ceux-ci ont été lancés lors d’une visite précédente et le serveur les a terminés. Enregistrez-les avant qu’ils n’expirent.",
+            saveFile: "Enregistrer le fichier",
+            dismiss: "Plus tard"
         },
         followus: "Suivez-nous",
         scroll: "Faites défiler ",

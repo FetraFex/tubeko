@@ -11,6 +11,13 @@
 // necessarily by the server: set VITE_RELAY_BASE and they come from a Cloudflare
 // Worker (worker/) instead, which takes both the bandwidth and the concurrency
 // ceiling off the Render instance. The server's /stream stays as the fallback.
+//
+// Audio is the exception: mp3 is not a container YouTube serves, so /download/audio
+// has the server extract and encode it (see the route in server/server.js) and the
+// row saves the finished file without touching ffmpeg here. Those downloads are
+// collected from a server-side job (see lib/audioJobs.js) rather than buffered as a
+// blob, so they survive the tab being closed - a phone whose screen locked can pick
+// the finished mp3 up again on the next visit.
 
 import { FFmpeg } from '@ffmpeg/ffmpeg'
 // Vite serves the core we installed as assets, so no CDN fetch is needed.
@@ -384,44 +391,6 @@ const readout = ({ received, total, elapsedMs, onProgress }) => {
 }
 
 /**
- * Audio-only download: pulls just the audio stream and returns its bytes. The
- * stream is already a finished, ready-to-play file (usually AAC in an m4a
- * container), so nothing is decoded here - the caller decides what to do with
- * it (audioToMp3 turns it into an mp3 below).
- */
-export const downloadAudioOnly = async ({
-  audioUrl,
-  expectedSize,
-  onProgress,
-  maxBytes = MAX_BROWSER_BYTES,
-  control,
-}) => {
-  const startedAt = performance.now()
-  const elapsedMs = () => (control ? control.elapsedMs() : performance.now() - startedAt)
-  let lastReport = 0
-
-  const { bytes, received, total } = await downloadStream(audioUrl, 'audio', {
-    maxBytes,
-    expectedSize,
-    control,
-    signal: control?.signal,
-    onProgress: onProgress
-      ? ({ received, total }) => {
-        const now = performance.now()
-        if (now - lastReport < UPDATE_INTERVAL) return
-        lastReport = now
-        readout({ received, total, elapsedMs: elapsedMs(), onProgress })
-      }
-      : undefined,
-  })
-  // The last chunk can land inside the throttle window, which would leave the row
-  // reading a few percent short of a file it already has (downloadMedia reports
-  // its final figures for the same reason).
-  if (onProgress) readout({ received, total, elapsedMs: elapsedMs(), onProgress })
-  return bytes
-}
-
-/**
  * Download the video and audio formats in parallel, reporting combined
  * progress so the UI shows one coherent size/speed/ETA readout.
  */
@@ -501,10 +470,6 @@ const collectLogs = (ffmpeg) => {
 }
 
 const WORK_FILES = ['video.mp4', 'audio.m4a', 'output.mp4']
-// The output extension is what picks the muxer; the input is probed by
-// content, so it can stay extension-agnostic (the chosen audio track is
-// usually AAC/m4a, but opus/webm exists too).
-const AUDIO_WORK_FILES = ['input.audio', 'output.mp3']
 
 // Any leftover file from an earlier failed run would make ffmpeg stop and ask
 // whether to overwrite, which it cannot do without a stdin.
@@ -513,13 +478,6 @@ const removeFiles = async (ffmpeg, files) => {
     try { await ffmpeg.deleteFile(file) } catch { /* was not there */ }
   }
 }
-
-// Converting in wasm holds the source, the decoded audio and the finished file
-// at once (wasm32 tops out around 2GB, and every byte is copied into ffmpeg's
-// in-memory filesystem on top of the page's own copy), so a very long recording
-// keeps its original m4a instead of spending minutes on an encode that cannot
-// finish.
-const MAX_CONVERT_BYTES = 250 * 1024 * 1024
 
 /**
  * Mux the two streams into a single mp4. Both inputs are already H.264/AAC in
@@ -615,84 +573,22 @@ export const muxToMp4 = ({ videoData, audioData, onProgress }) => withFFmpeg(asy
   }
 })
 
-/**
- * Re-encode the downloaded audio to mp3.
- *
- * mp3 and AAC are different codecs, not different containers, so the bytes
- * cannot simply be relabelled - they have to be decoded and encoded again.
- * ffmpeg.wasm carries libmp3lame, so the conversion happens in the tab and the
- * server stays out of it; the price is that audio downloads now load the same
- * ~32MB core the merger uses (cached after the first one).
- */
-export const audioToMp3 = ({ audioData, onProgress }) => withFFmpeg(async () => {
-  if (audioData?.length > MAX_CONVERT_BYTES) {
-    const error = new Error(`This audio is ${formatBytes(audioData.length)}, over the ${formatBytes(MAX_CONVERT_BYTES)} in-browser MP3 conversion limit`)
-    error.code = TOO_LARGE
-    throw error
-  }
-
-  const ffmpeg = await getFFmpeg()
-  const [input, output] = AUDIO_WORK_FILES
-  const logs = collectLogs(ffmpeg)
-
-  const handleProgress = ({ progress }) => {
-    if (typeof progress === 'number' && isFinite(progress)) {
-      onProgress?.(Math.max(0, Math.min(100, progress * 100)))
-    }
-  }
-  ffmpeg.on('progress', handleProgress)
-
-  try {
-    await removeFiles(ffmpeg, AUDIO_WORK_FILES)
-
-    try {
-      await ffmpeg.writeFile(input, audioData)
-    } catch (error) {
-      throw normalizeError(error, 'Could not load the audio for conversion')
-    }
-
-    // -vn drops any cover art that arrived as a video stream. -q:a 2 is LAME's
-    // VBR preset (~190kbps): transparent for music, and smaller than a
-    // constant-bitrate encode of the same quality.
-    const status = await ffmpeg.exec([
-      '-nostdin', '-y',
-      '-i', input,
-      '-vn',
-      '-c:a', 'libmp3lame',
-      '-q:a', '2',
-      output,
-    ])
-
-    if (status !== 0) {
-      const detail = logs.lines.slice(-3).join(' | ')
-      const error = new Error(`MP3 conversion failed: ${detail || `ffmpeg exited with code ${status}`}`)
-      error.code = BAD_MEDIA
-      throw error
-    }
-
-    let data
-    try {
-      data = await ffmpeg.readFile(output)
-    } catch (error) {
-      throw normalizeError(error, 'The MP3 was not produced')
-    }
-    if (!data || data.length === 0) {
-      const error = new Error('The MP3 came out empty')
-      error.code = BAD_MEDIA
-      throw error
-    }
-
-    onProgress?.(100)
-    return new Blob([data], { type: 'audio/mpeg' })
-  } catch (error) {
-    disposeFFmpeg()
-    throw normalizeError(error, 'MP3 conversion failed')
-  } finally {
-    ffmpeg.off('progress', handleProgress)
-    logs.stop()
-    await removeFiles(ffmpeg, AUDIO_WORK_FILES).catch(() => {})
-  }
-})
+// Hand a URL to the browser's own download manager rather than buffering the file
+// into a blob first. Same synchronous anchor click as saveBlob, but the bytes are
+// fetched by the browser instead of by the page: on Android that transfer belongs to
+// the download manager and keeps going after the tab is closed, which is what makes a
+// server-side job worth collecting this way.
+export const saveUrlAs = (url, filename) => {
+  const link = document.createElement('a')
+  link.href = url
+  // Ignored for a cross-origin URL: the server's Content-Disposition names the file.
+  if (filename) link.download = filename
+  link.rel = 'noopener'
+  link.style.display = 'none'
+  document.body.appendChild(link)
+  link.click()
+  document.body.removeChild(link)
+}
 
 export const saveBlob = (blob, filename) => {
   const url = URL.createObjectURL(blob)

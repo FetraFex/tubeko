@@ -6,15 +6,22 @@ import { AnimatePresence, motion } from 'framer-motion';
 import {
     MAX_BROWSER_BYTES,
     TOO_LARGE,
-    audioToMp3,
     createTransferControl,
-    downloadAudioOnly,
     downloadMedia,
     formatBytes,
     muxToMp4,
     sanitizeFilename,
     saveBlob,
+    saveUrlAs,
 } from '../lib/browserDownload';
+import {
+    audioJobFileUrl,
+    cancelAudioJob,
+    forgetAudioJob,
+    rememberAudioJob,
+    startAudioJob,
+    waitForAudioJob,
+} from '../lib/audioJobs';
 import {
     selectAudioFormat,
     selectVideoFormatThatFits,
@@ -168,8 +175,42 @@ const Video = forwardRef(({ title, thumbnail, videoId, duration, quality, onComp
         setStatusKey('stopped');
     };
 
-    // Audio-only download: pulls just the audio stream, re-encodes it to mp3
-    // and saves that. No video, and no mux step - there is only one stream.
+    // The mp3 is encoded by a server-side job that runs on its own, so nothing below
+    // depends on this tab staying open. `/download/audio/job` starts the extraction and
+    // answers with an id at once; this only polls that id for the progress display.
+    // Stopping the poll does not stop the work, so a cancelled row is told to DELETE
+    // the job and free the instance's yt-dlp slot.
+    const downloadAudioOnServer = async (jobId) => {
+        setStage('processing');
+        setStatusKey('converting');
+        setProgress(0);
+        setSize({ downloaded: '', total: '' });
+        setSpeed('');
+        setEta('');
+
+        await startAudioJob({
+            url: `https://www.youtube.com/watch?v=${videoId}`,
+            title,
+            jobId,
+        });
+        // Mirrored before the first poll: a tab that dies between here and the next
+        // visit is exactly the case the recovery list exists for.
+        rememberAudioJob({ id: jobId, title, createdAt: Date.now() });
+
+        return waitForAudioJob(jobId, {
+            signal: controlRef.current?.signal,
+            onUpdate: (job) => {
+                if (typeof job.progress === 'number') setProgress(job.progress);
+                if (job.size) setSize({ downloaded: '', total: job.size });
+                setStatusKey(job.status === 'ready' ? 'saving' : 'converting');
+            },
+        });
+    };
+
+    // Audio-only download: the server pulls the audio and encodes it, and the finished
+    // file is then fetched from a plain URL rather than buffered in the tab. Handing
+    // that URL to the browser means the transfer is the download manager's, so it can
+    // outlive the page - which is what makes a phone's lock screen harmless.
     const handleAudioDownload = async () => {
         if (downloading.status) return;
         setError('');
@@ -187,69 +228,38 @@ const Video = forwardRef(({ title, thumbnail, videoId, duration, quality, onComp
         controlRef.current = control;
         setDownloading(prev => ({ ...prev, status: true, type: 'audio' }));
 
+        // Unique per attempt, not per video: two rows for the same link, or two people
+        // downloading it, must not be handed each other's job.
+        const jobId = `${videoId}-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
+
         try {
-            const data = await fetchFormats();
-            const audioFormat = selectAudioFormat(data.formats);
+            const job = await downloadAudioOnServer(jobId);
 
-            if (!audioFormat) throw new Error('Could not find a suitable audio format');
-            if (!audioFormat.url) throw new Error('The server did not return a direct media URL for this format');
-
-            startTransfer('downloadingAudio');
-            const audioData = await downloadAudioOnly({
-                audioUrl: audioFormat.url,
-                control,
-                expectedSize: audioFormat.filesizeBytes,
-                onProgress: ({ percent, downloaded, total, speed: rate, eta }) => {
-                    setProgress(percent);
-                    setSize({ downloaded, total });
-                    setSpeed(rate);
-                    setEta(eta);
-                },
-            });
-
-            // The stream arrives as AAC, which has to be re-encoded: the
-            // download is already complete and playable, so a failed conversion
-            // is not worth losing it over - keep the m4a and say why.
-            setStatusKey('converting');
-            beginProcessing();
-            setProgress(0);
-            setSize({ downloaded: '', total: '' });
-            setSpeed('');
-            setEta('');
-
-            const label = sanitizeFilename(data.title);
-            let blob;
-            let filename = `${label}.mp3`;
-            try {
-                blob = await audioToMp3({ audioData, onProgress: setProgress });
-            } catch (conversionError) {
-                console.warn('[audio] mp3 conversion failed, saving the original m4a:', conversionError);
-                addNotice(`Could not convert this one to MP3 (${conversionError.message}), so it was saved as M4A instead.`);
-                blob = new Blob([audioData], { type: 'audio/mp4' });
-                filename = `${label}.m4a`;
-            }
-
-            beginProcessing();
-            // Stopping during the conversion cannot interrupt ffmpeg, so the check is
-            // made here instead: the file is dropped rather than saved.
             if (control.stopped) throw stopError();
             setStatusKey('saving');
             setProgress(100);
+            if (job.bytes) setSize({ downloaded: formatBytes(job.bytes), total: formatBytes(job.bytes) });
             setSpeed('');
             setEta('');
-            saveBlob(blob, filename);
-            // saveBlob is synchronous: by the time it returns the browser already has
-            // the file, so the row can say so rather than staying on the save step.
+            saveUrlAs(audioJobFileUrl(jobId), `${sanitizeFilename(title)}.mp3`);
+            // The browser's download manager now owns the file; the server copy has no
+            // further purpose and is dropped on the next sweep anyway.
+            forgetAudioJob(jobId);
             setStatusKey('complete');
             setCompleted(true);
         } catch (error) {
             if (control.stopped || isAbort(error)) {
+                // Stop means "I do not want this", so the server job goes too rather
+                // than holding the one yt-dlp slot for a file nobody will collect.
+                cancelAudioJob(jobId);
                 reportStopped();
             } else {
                 console.error('Audio download error:', error);
                 setError(error.message || 'Audio download failed');
             }
         } finally {
+            // A job that failed here stays in the mirror on purpose: the extraction may
+            // still be running server-side, and the recovery list can collect it later.
             setStage('idle');
             setPaused(false);
             setStopPrompt(false);

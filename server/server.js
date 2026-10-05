@@ -1457,36 +1457,122 @@ app.get('/download', async (req, res) => {
   });
 });
 
+/**
+ * The yt-dlp invocation that turns a link into an mp3: pull the best audio stream
+ * and let the bundled ffmpeg transcode it. Shared by the streaming route below and
+ * by the background job endpoints so both encode the same file the same way.
+ */
+const audioYtDlpArgs = ({ url, itag, outputTemplate }) => [
+  url,
+  '--no-warnings',
+  '--no-check-certificates',
+  '--force-ipv4',
+  '--retries', '5',
+  '--socket-timeout', '30',
+  // Progress lines arrive one per row instead of a carriage-return carousel.
+  '--newline',
+  // There is no system ffmpeg on the free instance, and -x cannot run without one:
+  // ffmpeg-static ships the binary, so hand yt-dlp its path explicitly.
+  '--ffmpeg-location', ffmpegPath,
+  '--extract-audio',
+  '--audio-format', 'mp3',
+  // LAME's VBR preset 2 (~190kbps) - the encode the in-browser conversion used, so
+  // a file downloaded now sounds the same as one downloaded then.
+  '--audio-quality', '2',
+  '-f', itag || 'bestaudio',
+  ...cookieArgs(),
+  ...potYtDlpArgs(),
+  '-o', outputTemplate,
+];
+
+/**
+ * The mp3 the client saves, produced here rather than in the tab.
+ *
+ * YouTube serves audio as AAC or Opus, never as mp3, so an mp3 has to be encoded
+ * somewhere. This used to happen in the browser with ffmpeg.wasm, which on a slow
+ * machine took longer than the download it followed. yt-dlp pulls the bestaudio
+ * stream and transcodes it with the host's ffmpeg, so the row receives a finished
+ * file and does no second pass of its own.
+ *
+ * Two details decide whether that actually happens. yt-dlp skips its
+ * postprocessors when the output is a pipe - `-o -` hands back the untouched AAC
+ * named .mp3 - so the extraction goes to a temp file and that file is streamed
+ * back, which also gives the response a Content-Length. And the host has no system
+ * ffmpeg, so yt-dlp is told where ffmpeg-static put one.
+ *
+ * The cost moves onto this instance (0.1 vCPU on the free plan), which is why the
+ * whole extraction holds a yt-dlp slot: one of these at a time is already the
+ * heaviest thing the box does, and two would stall everything else.
+ */
 app.get('/download/audio', async (req, res) => {
+  const { url, itag, id } = req.query;
+  if (!url) {
+    return res.status(400).json({ error: 'URL is required' });
+  }
+
+  const downloadId = id || Math.random().toString(36).substring(7);
+  const ytdlpPath = path.join(
+    __dirname,
+    process.platform === 'win32' ? 'yt-dlp.exe' : 'yt-dlp'
+  );
+  const tempDir = path.join(os.tmpdir(), 'yt-audio');
+  if (!fs.existsSync(tempDir)) fs.mkdirSync(tempDir, { recursive: true });
+
+  const stamp = Date.now();
+  // yt-dlp resolves %(ext)s itself, so the intermediate keeps its own extension and
+  // the postprocessor's output is the .mp3 named here.
+  const outputTemplate = path.join(tempDir, `audio_${stamp}.%(ext)s`);
+  const outputPath = path.join(tempDir, `audio_${stamp}.mp3`);
+
+  // Best-effort: a leftover temp file is not worth failing a request over, but it
+  // would otherwise sit in /tmp for the life of the instance. Only a run that
+  // removed every file counts as done - a delete that failed because the file was
+  // still open (Windows) is retried by the caller that runs later.
+  let cleaned = false;
+  const cleanup = () => {
+    if (cleaned) return;
+    let allGone = true;
+    for (const suffix of ['mp3', 'm4a', 'webm', 'opus', 'mp4', 'part']) {
+      try {
+        fs.unlinkSync(path.join(tempDir, `audio_${stamp}.${suffix}`));
+      } catch (error) {
+        if (error.code !== 'ENOENT') allGone = false;
+      }
+    }
+    cleaned = allGone;
+  };
+
+  // The same progress channel the merged-download route uses, so anything watching
+  // this download id still hears from it while the mp3 is being encoded.
+  const notify = (message) => {
+    if (!activeDownloads.has(downloadId)) return;
+    for (const clientRes of activeDownloads.get(downloadId)) {
+      clientRes.write(`data: ${JSON.stringify(message)}\n\n`);
+    }
+  };
+
+  // Queue behind the other lookups instead of spawning a second Python process
+  // on a 512MB box. A saturated instance answers 503 rather than swapping.
+  try {
+    await acquireYtdlpSlot();
+  } catch (error) {
+    return res.status(error.statusCode || 503).json({ error: error.message });
+  }
+
+  let released = false;
+  const releaseSlot = () => {
+    if (released) return;
+    released = true;
+    releaseYtdlpSlot();
+  };
+
   let childProcess;
   try {
-    const { url, itag, id } = req.query;
-    if (!url) {
-      return res.status(400).json({ error: 'URL is required' });
-    }
-
-    const downloadId = id || Math.random().toString(36).substring(7);
-    const ytdlpPath = path.join(
-      __dirname,
-      process.platform === 'win32' ? 'yt-dlp.exe' : 'yt-dlp'
-    );
-
     if (!fs.existsSync(ytdlpPath)) {
       throw new Error(`yt-dlp binary not found at ${ytdlpPath}`);
     }
 
-    const args = [
-      url,
-      '--no-warnings',
-      '--force-ipv4',
-      '--socket-timeout', '30',
-      '--extract-audio',
-      '--audio-format', 'mp3',
-      '-f', itag || 'bestaudio',
-      ...cookieArgs(),
-      ...potYtDlpArgs(),
-      '-o', '-'
-    ];
+    const args = audioYtDlpArgs({ url, itag, outputTemplate });
 
     childProcess = spawn(ytdlpPath, args, {
       stdio: ['ignore', 'pipe', 'pipe'],
@@ -1494,86 +1580,102 @@ app.get('/download/audio', async (req, res) => {
       windowsHide: true
     });
 
-    // Track if we got any data
-    let hasData = false;
-
-    // Set headers
-    res.header('Content-Disposition', 'attachment; filename="audio.mp3"');
-    res.header('Content-Type', 'audio/mpeg');
-
-    // Pipe stdout to response
+    // With a file destination yt-dlp puts its progress on stdout, and the pipe has
+    // to be drained either way: a full buffer would stall a long extraction.
+    let stdoutBuffer = '';
     childProcess.stdout.on('data', (chunk) => {
-      hasData = true;
-      res.write(chunk); // Manually write chunks instead of .pipe()
-    });
-
-    childProcess.stdout.on('end', () => {
-      if (!hasData) {
-        throw new Error('No audio data received from yt-dlp');
+      stdoutBuffer += chunk.toString();
+      const lines = stdoutBuffer.split(/\r?\n/);
+      stdoutBuffer = lines.pop(); // keep the trailing partial line
+      for (const line of lines) {
+        const parsed = parseYtDlpProgress(line);
+        if (parsed) notify({ type: 'progress', phase: 'audio', ...parsed });
       }
-      res.end();
     });
 
+    // A stream that cannot be decoded, or a video with no audio at all, reports
+    // here; the close handler turns the missing output into what the client gets.
     childProcess.stderr.on('data', (data) => {
       const output = data.toString().trim();
-
-      if (output.startsWith('[download]')) {
-        console.log(output);
-        // Send progress to all connected clients
-        if (activeDownloads.has(downloadId)) {
-          for (const clientRes of activeDownloads.get(downloadId)) {
-            clientRes.write(`data: ${JSON.stringify({
-              type: 'progress',
-              data: output
-            })}\n\n`);
-          }
-        }
-      }
-
-      if (output.includes('ERROR') && !res.headersSent) {
-        res.status(500).json({ error: output });
-        childProcess.kill();
-      }
+      if (output.includes('ERROR')) console.error('[download/audio]', output);
     });
 
     childProcess.on('error', (error) => {
       console.error('Process error:', error);
+      releaseSlot();
+      cleanup();
       if (!res.headersSent) {
         res.status(500).json({ error: 'Download failed', details: error.message });
       }
 
+      notify({ type: 'error', error: error.message });
       if (activeDownloads.has(downloadId)) {
-        for (const clientRes of activeDownloads.get(downloadId)) {
-          clientRes.write(`data: ${JSON.stringify({
-            type: 'error',
-            error: error.message
-          })}\n\n`);
-          clientRes.end();
-        }
+        for (const clientRes of activeDownloads.get(downloadId)) clientRes.end();
         activeDownloads.delete(downloadId);
       }
     });
 
     childProcess.on('close', (code) => {
-      if (code !== 0 && !res.headersSent) {
-        res.status(500).json({ error: `Process exited with code ${code}` });
+      releaseSlot();
+
+      // No output means the extraction failed: the response can still be replaced
+      // with a sentence, which beats an empty 200 the row would save as a silent
+      // failure. (code 0 with no file is yt-dlp skipping a stream it could not
+      // postprocess - the failure this route exists to avoid and must not hide.)
+      if (code !== 0 || !fs.existsSync(outputPath)) {
+        cleanup();
+        if (!res.headersSent) {
+          res.status(code === 0 ? 502 : 500).json({
+            error: code === 0
+              ? 'The server could not extract an mp3 for this video'
+              : `Process exited with code ${code}`,
+          });
+        } else if (!res.writableEnded) {
+          res.destroy();
+        }
+        notify({ type: 'error', error: `Process exited with code ${code}` });
+        if (activeDownloads.has(downloadId)) {
+          for (const clientRes of activeDownloads.get(downloadId)) clientRes.end();
+          activeDownloads.delete(downloadId);
+        }
+        return;
       }
 
+      const stat = fs.statSync(outputPath);
+      res.setHeader('Content-Type', 'audio/mpeg');
+      res.setHeader('Content-Length', stat.size);
+      res.setHeader('Content-Disposition', 'attachment; filename="audio.mp3"');
+      const readStream = fs.createReadStream(outputPath);
+      readStream.pipe(res);
+      readStream.on('error', (error) => {
+        console.error('Audio read stream error:', error);
+        if (!res.headersSent) res.status(500).json({ error: 'Failed to send the mp3' });
+        else res.destroy();
+        cleanup();
+      });
+      // Fires on a finished send and on a client that walked away mid-file alike,
+      // and after the read handle is closed - which is what lets the delete work on
+      // Windows, where an open file cannot be removed.
+      readStream.on('close', cleanup);
+
+      notify({ type: 'complete', code });
       if (activeDownloads.has(downloadId)) {
-        for (const clientRes of activeDownloads.get(downloadId)) {
-          clientRes.write(`data: ${JSON.stringify({
-            type: 'complete',
-            code: code
-          })}\n\n`);
-          clientRes.end();
-        }
+        for (const clientRes of activeDownloads.get(downloadId)) clientRes.end();
         activeDownloads.delete(downloadId);
       }
+    });
+
+    // Nothing else is listening on this response: a client that stops waiting (the
+    // row's Stop button aborts the fetch) should not leave ffmpeg encoding for it.
+    res.on('close', () => {
+      if (childProcess && childProcess.exitCode === null) childProcess.kill();
     });
 
   } catch (error) {
     console.error('Audio download error:', error);
     if (childProcess) childProcess.kill();
+    releaseSlot();
+    cleanup();
     if (!res.headersSent) {
       res.status(500).json({
         error: 'Audio download failed',
@@ -1581,6 +1683,281 @@ app.get('/download/audio', async (req, res) => {
       });
     }
   }
+});
+
+// --- Background audio jobs ---------------------------------------------------
+//
+// The route above finishes the mp3 on this box, but it streams that file back down
+// the connection that asked for it: the file only exists while the tab that asked is
+// still listening. On a phone that is the whole problem - locking the screen or
+// switching apps drops the response, the route sees the close and kills yt-dlp
+// mid-encode, and nothing is saved.
+//
+// A job inverts that. It owns its own lifecycle: the extraction outlives the request
+// that started it and leaves the finished mp3 where a later visit can pick it up.
+// The client mirrors the open job ids into localStorage, so a tab that was killed
+// mid-download can offer the finished file again on the next visit, and the file is
+// served from a plain URL that the browser's own download manager can fetch - which
+// on Android keeps transferring after the page is gone.
+//
+// This is the cheap half of background support, and the only half iOS allows: Safari
+// cancels a tab's work the moment it is suspended, so the work has to finish
+// server-side and be collected afterwards. Nothing here adds a host process or a
+// dependency - it is the same yt-dlp extraction with a longer-lived result. The store
+// is /tmp, so a deploy or a restart drops whatever was not collected yet.
+const AUDIO_JOB_DIR = path.join(os.tmpdir(), 'yt-audio-jobs');
+// Long enough to come back to, short enough that a busy instance is not a cache of
+// mp3s nobody collected.
+const AUDIO_JOB_MAX_AGE_MS = Math.max(
+  60 * 1000,
+  Number.parseInt(process.env.AUDIO_JOB_MAX_AGE_MS, 10) || 30 * 60 * 1000
+);
+// Bounded for the same reason: the temp directory plus this Map are the entire store.
+const AUDIO_JOB_MAX = Math.max(1, Number.parseInt(process.env.AUDIO_JOB_MAX, 10) || 40);
+
+const audioJobs = new Map(); // jobId -> job
+
+// A filename safe to put in a Content-Disposition header. The row's own title is what
+// the user recognised the video by, so keep it wherever a filesystem allows.
+const audioJobFilename = (title) => {
+  const base = String(title || '')
+    .replace(/\.mp3$/i, '')
+    .replace(/[<>:"/\\|?*\u0000-\u001f]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 120);
+  return `${base || 'audio'}.mp3`;
+};
+
+// Best-effort, like the streaming route's own cleanup: a leftover temp file is not
+// worth failing a request over, and once the job is gone from the map nothing will
+// ask for it again.
+const removeAudioJobFiles = (job) => {
+  for (const suffix of ['mp3', 'm4a', 'webm', 'opus', 'mp4', 'part']) {
+    try {
+      fs.unlinkSync(`${job.stem}.${suffix}`);
+    } catch (_) { /* already gone */ }
+  }
+};
+
+// Drop finished jobs that have aged out, and stay under AUDIO_JOB_MAX. A job still
+// encoding is never swept, however old it is, or a slow extraction would lose its own
+// output file halfway through.
+const sweepAudioJobs = () => {
+  const now = Date.now();
+  const inFlight = (job) => job.status === 'queued' || job.status === 'processing';
+
+  for (const [id, job] of audioJobs) {
+    if (inFlight(job)) continue;
+    if (now - job.createdAt < AUDIO_JOB_MAX_AGE_MS) continue;
+    removeAudioJobFiles(job);
+    audioJobs.delete(id);
+  }
+
+  while (audioJobs.size > AUDIO_JOB_MAX) {
+    let oldest = null;
+    for (const [id, job] of audioJobs) {
+      if (inFlight(job)) continue;
+      if (!oldest || job.createdAt < oldest.job.createdAt) oldest = { id, job };
+    }
+    if (!oldest) break;
+    removeAudioJobFiles(oldest.job);
+    audioJobs.delete(oldest.id);
+  }
+};
+
+// What the client sees of a job. `fileUrl` is a plain path rather than a media link:
+// it is meant to be handed to the browser, not fetched by the page.
+const audioJobView = (job) => ({
+  jobId: job.id,
+  status: job.status,
+  progress: job.progress || 0,
+  size: job.size || '',
+  filename: job.filename,
+  bytes: job.bytes || null,
+  error: job.error || null,
+  createdAt: job.createdAt,
+  fileUrl: job.status === 'ready' ? `/download/audio/job/${job.id}/file` : null,
+});
+
+// Run one job to completion. Deliberately not tied to any response: the close handler
+// is what records the outcome, so the extraction finishes whether or not a tab is
+// still around to hear about it.
+const startAudioJob = async (job) => {
+  try {
+    await acquireYtdlpSlot();
+  } catch (error) {
+    job.status = 'failed';
+    job.error = error.message;
+    return;
+  }
+
+  let released = false;
+  const releaseSlot = () => {
+    if (released) return;
+    released = true;
+    releaseYtdlpSlot();
+  };
+
+  job.status = 'processing';
+
+  try {
+    if (!fs.existsSync(job.ytdlpPath)) {
+      throw new Error(`yt-dlp binary not found at ${job.ytdlpPath}`);
+    }
+
+    const child = spawn(
+      job.ytdlpPath,
+      audioYtDlpArgs({ url: job.url, itag: job.itag, outputTemplate: job.outputTemplate }),
+      { stdio: ['ignore', 'pipe', 'pipe'], shell: false, windowsHide: true }
+    );
+    job.child = child;
+
+    // With a file destination yt-dlp puts its progress on stdout, and the pipe has to
+    // be drained either way: a full buffer would stall a long extraction.
+    let stdoutBuffer = '';
+    child.stdout.on('data', chunk => {
+      stdoutBuffer += chunk.toString();
+      const lines = stdoutBuffer.split(/\r?\n/);
+      stdoutBuffer = lines.pop(); // keep the trailing partial line
+      for (const line of lines) {
+        const parsed = parseYtDlpProgress(line);
+        if (!parsed) continue;
+        job.progress = parsed.percent;
+        job.size = parsed.total;
+      }
+    });
+
+    child.stderr.on('data', data => {
+      const output = data.toString().trim();
+      if (output.includes('ERROR')) console.error('[download/audio/job]', output);
+    });
+
+    child.on('error', error => {
+      console.error('[download/audio/job] process error:', error);
+      job.child = null;
+      job.status = 'failed';
+      job.error = error.message;
+      releaseSlot();
+    });
+
+    child.on('close', code => {
+      releaseSlot();
+      job.child = null;
+
+      // No output means the extraction failed. code 0 with no file is yt-dlp skipping
+      // a stream it could not postprocess - the failure this whole route exists to
+      // avoid, and it must not be reported as success.
+      if (code !== 0 || !fs.existsSync(job.outputPath)) {
+        job.status = 'failed';
+        job.error = code === 0
+          ? 'The server could not extract an mp3 for this video'
+          : `Process exited with code ${code}`;
+        return;
+      }
+
+      job.status = 'ready';
+      job.progress = 100;
+      job.bytes = fs.statSync(job.outputPath).size;
+      // Left on disk on purpose: this is the file a killed tab comes back for. The
+      // sweep above is what eventually clears it.
+    });
+  } catch (error) {
+    releaseSlot();
+    job.child = null;
+    job.status = 'failed';
+    job.error = error.message;
+  }
+};
+
+// Start an mp3 and answer straight away with the id to follow it by. The caller
+// already has an id for the row it is downloading - the same one the SSE progress
+// channel uses - so it can pass that and recognise the job afterwards.
+app.post('/download/audio/job', (req, res) => {
+  const { url, itag, title, id } = req.body || {};
+  if (!url) return res.status(400).json({ error: 'url is required' });
+
+  sweepAudioJobs();
+
+  const jobId = String(id || Math.random().toString(36).slice(2, 10));
+  const existing = audioJobs.get(jobId);
+  if (existing) return res.json(audioJobView(existing));
+
+  try {
+    if (!fs.existsSync(AUDIO_JOB_DIR)) fs.mkdirSync(AUDIO_JOB_DIR, { recursive: true });
+  } catch (error) {
+    return res.status(500).json({ error: `Could not prepare the download directory: ${error.message}` });
+  }
+
+  const stem = path.join(AUDIO_JOB_DIR, `audio_${Date.now()}_${jobId}`);
+  const job = {
+    id: jobId,
+    url,
+    itag: itag || '',
+    status: 'queued',
+    progress: 0,
+    size: '',
+    bytes: null,
+    error: null,
+    filename: audioJobFilename(title),
+    stem,
+    // yt-dlp resolves %(ext)s itself, so the intermediate keeps its own extension and
+    // the postprocessor's output is the .mp3 named here.
+    outputTemplate: `${stem}.%(ext)s`,
+    outputPath: `${stem}.mp3`,
+    ytdlpPath: path.join(__dirname, process.platform === 'win32' ? 'yt-dlp.exe' : 'yt-dlp'),
+    child: null,
+    createdAt: Date.now(),
+  };
+  audioJobs.set(jobId, job);
+
+  // Not awaited by design: the point of a job is that it runs on its own.
+  startAudioJob(job).catch(error => {
+    job.status = 'failed';
+    job.error = error.message;
+  });
+
+  console.log(`[download/audio/job] ${jobId} started for ${url}`);
+  res.status(202).json(audioJobView(job));
+});
+
+// Follow a job's progress. The row polls this while its tab is alive; after the tab
+// is gone it is what the recovery list reads to find out whether the file made it.
+app.get('/download/audio/job/:jobId', (req, res) => {
+  const job = audioJobs.get(req.params.jobId);
+  if (!job) return res.status(404).json({ error: 'Unknown audio job' });
+  res.json(audioJobView(job));
+});
+
+// The finished file, at a plain URL. Sent as an attachment named after the row, so
+// the browser's download manager can collect it with no help from the page - which is
+// the only way a download survives the tab on a phone.
+app.get('/download/audio/job/:jobId/file', (req, res) => {
+  const job = audioJobs.get(req.params.jobId);
+  if (!job) return res.status(404).json({ error: 'Unknown audio job' });
+  if (job.status !== 'ready') {
+    return res.status(409).json({ error: 'The mp3 is not ready yet', status: job.status });
+  }
+  if (!fs.existsSync(job.outputPath)) {
+    job.status = 'failed';
+    job.error = 'The finished file is no longer on the server';
+    return res.status(410).json({ error: job.error });
+  }
+  res.download(job.outputPath, job.filename, error => {
+    if (error) console.error(`[download/audio/job] ${job.id} send failed: ${error.message}`);
+  });
+});
+
+// Abandon a job: stop anything still encoding and drop the file. A row's Stop button
+// means "I do not want this", and a file nobody will collect must not go on holding
+// the instance's single yt-dlp slot.
+app.delete('/download/audio/job/:jobId', (req, res) => {
+  const job = audioJobs.get(req.params.jobId);
+  if (!job) return res.status(204).end();
+  if (job.child && job.child.exitCode === null) job.child.kill();
+  removeAudioJobFiles(job);
+  audioJobs.delete(job.id);
+  res.status(204).end();
 });
 
 app.post('/merge', async (req, res) => {

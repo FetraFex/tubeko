@@ -17,6 +17,8 @@ import dictionary from '../Context/Dictionnary'
 import { QUALITY_OPTIONS, DEFAULT_QUALITY, qualityOption } from '../lib/quality'
 import { useDismissOnOutsideClick } from '../lib/useDismissOnOutsideClick'
 import { API } from '../lib/api'
+import { audioJobFileUrl, forgetAudioJob, readAudioJobs, waitForAudioJob } from '../lib/audioJobs'
+import { saveUrlAs } from '../lib/browserDownload'
 
 // The spark field is built once, at module scope. Because these element objects keep
 // their identity across renders, React skips the whole subtree - which is what stops
@@ -83,11 +85,62 @@ const Home = () => {
     const [playlistInfo, setPlaylistInfo] = useState(null)
     const [renderedCount, setRenderedCount] = useState(RENDER_CHUNK)
 
+    // Audio jobs an earlier visit left running on the server, shown so the finished
+    // files can be collected. See the reconnect effect below.
+    const [recoveredJobs, setRecoveredJobs] = useState([])
+
     useDismissOnOutsideClick(startMenuRef, isStartMenuOpen, () => setIsStartMenuOpen(false))
 
     const { language } = useLanguage()
     // The download bar and the playlist header: buttons, menu entries and counts.
     const t = dictionary[language].download
+
+    // Reconnect to anything a previous visit started. Every remembered job is polled
+    // once here: one that already finished is offered straight away, and one still
+    // encoding joins the list the moment the server owns its file. A job the server no
+    // longer knows (aged out, or lost to a restart) is dropped instead of lingering.
+    useEffect(() => {
+        const remembered = readAudioJobs()
+        if (!remembered.length) return
+        let cancelled = false
+
+        remembered.forEach((entry) => {
+            waitForAudioJob(entry.id, {
+                onUpdate: (job) => {
+                    if (cancelled || job.status !== 'ready') return
+                    setRecoveredJobs((prev) => (
+                        prev.some((item) => item.id === entry.id)
+                            ? prev
+                            : [...prev, { id: entry.id, filename: job.filename || `${entry.title || 'audio'}.mp3` }]
+                    ))
+                },
+            }).catch((error) => {
+                if (cancelled) return
+                // Only a job the server has genuinely lost (a restart, or its window
+                // elapsed) is dropped. A network blip leaves the entry alone: the file
+                // may still be waiting on the next visit.
+                if (error?.code === 'JOB_GONE' || error?.code === 'JOB_FAILED') {
+                    forgetAudioJob(entry.id)
+                }
+            })
+        })
+
+        return () => { cancelled = true }
+    }, [])
+
+    // Hand a recovered file to the browser's download manager, then stop offering it.
+    const collectRecoveredJob = (job) => {
+        saveUrlAs(audioJobFileUrl(job.id), job.filename)
+        forgetAudioJob(job.id)
+        setRecoveredJobs((prev) => prev.filter((item) => item.id !== job.id))
+    }
+
+    // "Not now": the file stays on the server until it ages out, but the banner stops
+    // asking. Forgetting it locally is what makes that stick across reloads.
+    const dismissRecoveredJob = (job) => {
+        forgetAudioJob(job.id)
+        setRecoveredJobs((prev) => prev.filter((item) => item.id !== job.id))
+    }
 
     // The controls (label + headline + input + buttons) are held at the vertical centre
     // of the first screen by a spacer whose height is measured here. Reading the real
@@ -586,6 +639,47 @@ const Home = () => {
                     below down) instead of being capped to the viewport or moving the
                     controls above. */}
                 <div className='z-50 w-full flex flex-col items-center px-3 pb-24 sm:px-4'>
+                    {/* Finished downloads from a previous visit. This is the payoff for
+                        doing the mp3 on the server: the tab that started the work is not
+                        here any more, but the file is, and a plain URL lets the browser's
+                        own download manager fetch it. */}
+                    <AnimatePresence>
+                        {recoveredJobs.length > 0 && (
+                            <motion.div
+                                initial={{ opacity: 0, y: -8 }}
+                                animate={{ opacity: 1, y: 0 }}
+                                exit={{ opacity: 0, y: -8 }}
+                                transition={{ duration: 0.2, ease: 'easeOut' }}
+                                className='mt-8 w-full rounded-2xl border border-[#72ffce]/25 bg-[#08130f]/80 p-4 text-left sm:mt-10 lg:w-3/5 xl:w-[54%] 2xl:w-[46%]'
+                            >
+                                <p className='text-sm font-semibold text-white sm:text-base'>{t.recoveredTitle}</p>
+                                <p className='mt-1 text-xs text-white/55'>{t.recoveredHint}</p>
+                                <div className='mt-3 flex flex-col gap-2'>
+                                    {recoveredJobs.map((job) => (
+                                        <div key={job.id} className='flex flex-wrap items-center gap-3 rounded-xl border border-[#72ffce]/15 bg-white/5 px-3 py-2'>
+                                            <FontAwesomeIcon icon={faFileAudio} className='text-[#a7ffe2]' />
+                                            <span className='min-w-0 flex-1 truncate text-sm text-white/85'>{job.filename}</span>
+                                            <button
+                                                type='button'
+                                                onClick={() => collectRecoveredJob(job)}
+                                                className='flex items-center gap-2 rounded-full bg-[#72ffce] px-3.5 py-1.5 text-xs font-semibold text-black transition-colors duration-200 hover:bg-[#a7ffe2]'
+                                            >
+                                                <FontAwesomeIcon icon={faDownload} className='text-[11px]' />
+                                                <span>{t.saveFile}</span>
+                                            </button>
+                                            <button
+                                                type='button'
+                                                onClick={() => dismissRecoveredJob(job)}
+                                                className='rounded-full px-2.5 py-1.5 text-xs font-medium text-white/50 transition-colors duration-150 hover:text-white'
+                                            >
+                                                {t.dismiss}
+                                            </button>
+                                        </div>
+                                    ))}
+                                </div>
+                            </motion.div>
+                        )}
+                    </AnimatePresence>
                     {videos.length > 0 && (
                         <>
                             {playlistInfo && (
